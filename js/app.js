@@ -3,6 +3,7 @@
 const App = (function () {
   function init() {
     ImageManager.init(onImageSelected);
+    RegionSelector.init();
     ExportManager.init();
 
     document.getElementById('btn-run-ocr').addEventListener('click', runOcrAll);
@@ -14,13 +15,21 @@ const App = (function () {
   }
 
   function onImageSelected(imgData) {
-    // 이미지 선택 시 별도 처리 없음
+    requestAnimationFrame(() => {
+      RegionSelector.onImageChange();
+    });
   }
 
   async function runOcrAll() {
     const allImages = ImageManager.getAll();
     if (allImages.length === 0) {
       toast('이미지를 먼저 업로드해주세요', 'error');
+      return;
+    }
+
+    const regions = RegionSelector.getRegions();
+    if (regions.length === 0) {
+      toast('대표 이미지에서 OCR 영역을 먼저 그려주세요', 'error');
       return;
     }
 
@@ -36,6 +45,7 @@ const App = (function () {
         progress: i / allImages.length,
       });
 
+      // 별도 img 엘리먼트에 로드
       const imgEl = new Image();
       imgEl.src = imgData.dataUrl;
       await new Promise(resolve => {
@@ -43,11 +53,15 @@ const App = (function () {
         if (imgEl.complete) resolve();
       });
 
-      const skills = await OcrEngine.recognizeImage(imgEl, onOcrProgress);
-      if (skills && skills.length > 0) {
-        ResultTable.addResults(imgData.fileName, skills);
-      } else if (skills && skills.length === 0) {
-        ResultTable.addResults(imgData.fileName, [{ name: '[인식 실패]', level: '' }]);
+      const results = await OcrEngine.recognizeRegions(imgEl, regions, onOcrProgress);
+      if (results) {
+        // 스킬이 하나라도 있으면 추가
+        const hasSkills = results.some(r => r.skills.length > 0);
+        if (hasSkills) {
+          ResultTable.addResults(imgData.fileName, results);
+        } else {
+          ResultTable.addResults(imgData.fileName, [{ regionLabel: '', skills: [{ name: '[인식 실패]', level: '' }], rawText: '' }]);
+        }
       }
     }
 

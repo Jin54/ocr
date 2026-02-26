@@ -9,6 +9,8 @@ const ImageManager = (function () {
   const fileInput = () => document.getElementById('file-input');
   const thumbSection = () => document.getElementById('thumbnail-section');
   const thumbStrip = () => document.getElementById('thumbnail-strip');
+  const workspaceSection = () => document.getElementById('workspace-section');
+  const workspaceImage = () => document.getElementById('workspace-image');
 
   function init(onSelect) {
     onSelectCallback = onSelect;
@@ -57,11 +59,10 @@ const ImageManager = (function () {
           loaded++;
           if (loaded === files.length) {
             if (!selectedId) {
-              selectedId = images[images.length - files.length].id;
+              selectImage(images[images.length - files.length].id);
+            } else {
+              renderThumbnails();
             }
-            renderThumbnails();
-            // 이미지가 있으면 OCR 버튼 표시
-            document.getElementById('ocr-section').classList.remove('hidden');
           }
         };
         img.src = e.target.result;
@@ -90,8 +91,7 @@ const ImageManager = (function () {
           removeImage(e.target.dataset.id);
           return;
         }
-        selectedId = img.id;
-        renderThumbnails();
+        selectImage(img.id);
       });
       strip.appendChild(div);
     });
@@ -99,16 +99,35 @@ const ImageManager = (function () {
     thumbSection().classList.toggle('hidden', images.length === 0);
   }
 
+  function selectImage(id) {
+    const img = images.find(i => i.id === id);
+    if (!img) return;
+
+    selectedId = id;
+    const wsImg = workspaceImage();
+    wsImg.src = img.dataUrl;
+    workspaceSection().classList.remove('hidden');
+    document.getElementById('ocr-section').classList.remove('hidden');
+
+    renderThumbnails();
+
+    if (onSelectCallback) {
+      wsImg.onload = () => onSelectCallback(img);
+    }
+  }
+
   function removeImage(id) {
     images = images.filter(i => i.id !== id);
     if (selectedId === id) {
-      selectedId = images.length > 0 ? images[0].id : null;
+      selectedId = null;
+      if (images.length > 0) {
+        selectImage(images[0].id);
+      } else {
+        workspaceSection().classList.add('hidden');
+        document.getElementById('ocr-section').classList.add('hidden');
+      }
     }
     renderThumbnails();
-
-    if (images.length === 0) {
-      document.getElementById('ocr-section').classList.add('hidden');
-    }
   }
 
   function getSelected() {
@@ -122,8 +141,17 @@ const ImageManager = (function () {
   function selectImage(id) {
     const img = images.find(i => i.id === id);
     if (!img) return;
+
     selectedId = id;
+    const wsImg = workspaceImage();
+    wsImg.src = img.dataUrl;
+    workspaceSection().classList.remove('hidden');
+    document.getElementById('ocr-section').classList.remove('hidden');
     renderThumbnails();
+
+    if (onSelectCallback) {
+      wsImg.onload = () => onSelectCallback(img);
+    }
   }
 
   return { init, getSelected, getAll, selectImage };

@@ -8,11 +8,30 @@ const ResultTable = (function () {
   const thead = () => document.querySelector('#results-table thead');
   const tbody = () => document.querySelector('#results-table tbody');
 
-  function addResults(fileName, skills) {
-    if (skills.length > maxSkills) {
-      maxSkills = skills.length;
+  // 스킬명 정리: 특수문자 제거
+  function cleanSkillName(name) {
+    return name
+      .replace(/[^가-힣a-zA-Z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function addResults(fileName, regionResults) {
+    // 모든 영역의 스킬을 하나로 합침
+    const allSkills = [];
+    for (const r of regionResults) {
+      for (const s of r.skills) {
+        allSkills.push({
+          name: cleanSkillName(s.name),
+          level: s.level,
+        });
+      }
     }
-    rows.push({ fileName, skills });
+
+    if (allSkills.length > maxSkills) {
+      maxSkills = allSkills.length;
+    }
+    rows.push({ fileName, skills: allSkills });
     render();
     section().classList.remove('hidden');
   }
@@ -29,11 +48,9 @@ const ResultTable = (function () {
   function render() {
     const cols = getColumns();
 
-    // Header
     const headerHtml = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
     thead().innerHTML = `<tr>${headerHtml}</tr>`;
 
-    // Body
     const bodyHtml = rows.map((row, ri) => {
       let cells = `<td contenteditable="true" data-row="${ri}" data-col="fileName">${escapeHtml(row.fileName)}</td>`;
       for (let i = 0; i < maxSkills; i++) {
@@ -45,21 +62,16 @@ const ResultTable = (function () {
     }).join('');
     tbody().innerHTML = bodyHtml;
 
-    // Bind edit events
     tbody().querySelectorAll('td[contenteditable]').forEach(td => {
       td.addEventListener('blur', onCellEdit);
     });
 
-    // Bind delete events
     tbody().querySelectorAll('.row-delete').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const ri = parseInt(e.target.dataset.row);
         rows.splice(ri, 1);
-        // maxSkills 재계산
         maxSkills = rows.reduce((max, r) => Math.max(max, r.skills.length), 0);
-        if (rows.length === 0) {
-          section().classList.add('hidden');
-        }
+        if (rows.length === 0) section().classList.add('hidden');
         render();
       });
     });
@@ -84,8 +96,7 @@ const ResultTable = (function () {
   }
 
   function clear() {
-    rows = [];
-    maxSkills = 0;
+    rows = []; maxSkills = 0;
     render();
     section().classList.add('hidden');
   }

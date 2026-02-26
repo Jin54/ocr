@@ -152,6 +152,12 @@ section {
   margin-top: 4px;
 }
 
+.region-hint {
+  font-size: 0.8rem;
+  color: #888;
+  line-height: 1.5;
+}
+
 /* === Thumbnail Strip === */
 #thumbnail-section {
   background: #1a1a1a;
