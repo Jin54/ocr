@@ -1,7 +1,7 @@
-/* result-table.js - Editable results table with data accumulation */
+/* result-table.js - Editable results table: 파일이름 - 데이터 */
 
 const ResultTable = (function () {
-  let columns = ['소스'];
+  let columns = ['파일', '데이터'];
   let rows = [];
 
   const section = () => document.getElementById('results-section');
@@ -9,16 +9,10 @@ const ResultTable = (function () {
   const tbody = () => document.querySelector('#results-table tbody');
 
   function addResults(fileName, ocrResults) {
-    const row = { '소스': fileName };
+    // 모든 영역의 텍스트를 하나로 합침
+    const text = ocrResults.map(r => r.text).filter(t => t && t !== '[인식 실패]').join(' | ');
 
-    for (const result of ocrResults) {
-      if (!columns.includes(result.regionLabel)) {
-        columns.push(result.regionLabel);
-      }
-      row[result.regionLabel] = result.text;
-    }
-
-    rows.push(row);
+    rows.push({ '파일': fileName, '데이터': text });
     render();
     section().classList.remove('hidden');
   }
@@ -63,7 +57,6 @@ const ResultTable = (function () {
 
   function clear() {
     rows = [];
-    columns = ['소스'];
     render();
     section().classList.add('hidden');
   }

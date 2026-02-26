@@ -9,8 +9,7 @@ const App = (function () {
     TemplateManager.init();
 
     // OCR buttons
-    document.getElementById('btn-run-ocr').addEventListener('click', runOcrCurrent);
-    document.getElementById('btn-run-ocr-all').addEventListener('click', runOcrAll);
+    document.getElementById('btn-run-ocr').addEventListener('click', runOcrAll);
     document.getElementById('btn-clear-results').addEventListener('click', () => {
       if (confirm('모든 결과를 삭제할까요?')) {
         ResultTable.clear();
@@ -25,52 +24,23 @@ const App = (function () {
     });
   }
 
-  async function runOcrCurrent() {
-    const imgData = ImageManager.getSelected();
-    if (!imgData) {
-      toast('이미지를 먼저 선택해주세요', 'error');
-      return;
-    }
-
-    const regions = RegionSelector.getRegions();
-    if (regions.length === 0) {
-      toast('OCR 영역을 먼저 그려주세요', 'error');
-      return;
-    }
-
-    setOcrButtonsEnabled(false);
-    showProgress(true);
-
-    const imgEl = ImageManager.getImageElement();
-    const results = await OcrEngine.recognizeImage(imgEl, regions, onOcrProgress);
-
-    if (results) {
-      ResultTable.addResults(imgData.fileName, results);
-      toast('OCR 완료: ' + results.length + '개 영역', 'success');
-    }
-
-    setOcrButtonsEnabled(true);
-    setTimeout(() => showProgress(false), 1500);
-  }
-
   async function runOcrAll() {
     const allImages = ImageManager.getAll();
     if (allImages.length === 0) {
-      toast('이미지가 없습니다', 'error');
+      toast('이미지를 먼저 업로드해주세요', 'error');
       return;
     }
 
     const regions = RegionSelector.getRegions();
     if (regions.length === 0) {
-      toast('OCR 영역을 먼저 그려주세요', 'error');
+      toast('대표 이미지에서 OCR 영역을 먼저 그려주세요', 'error');
       return;
     }
 
     setOcrButtonsEnabled(false);
     showProgress(true);
 
-    const imgEl = ImageManager.getImageElement();
-
+    // 별도의 img 엘리먼트를 사용하여 각 이미지를 로드
     for (let i = 0; i < allImages.length; i++) {
       const imgData = allImages[i];
 
@@ -80,16 +50,13 @@ const App = (function () {
         progress: i / allImages.length,
       });
 
-      // Load image into workspace
-      ImageManager.selectImage(imgData.id);
-      // Wait for image to load
+      // 새 이미지 엘리먼트를 만들어서 로드
+      const imgEl = new Image();
+      imgEl.src = imgData.dataUrl;
       await new Promise(resolve => {
         imgEl.onload = resolve;
         if (imgEl.complete) resolve();
       });
-
-      await new Promise(r => requestAnimationFrame(r));
-      RegionSelector.syncCanvasSize();
 
       const results = await OcrEngine.recognizeImage(imgEl, regions, onOcrProgress);
       if (results) {
@@ -119,7 +86,6 @@ const App = (function () {
 
   function setOcrButtonsEnabled(enabled) {
     document.getElementById('btn-run-ocr').disabled = !enabled;
-    document.getElementById('btn-run-ocr-all').disabled = !enabled;
   }
 
   function toast(message, type) {
