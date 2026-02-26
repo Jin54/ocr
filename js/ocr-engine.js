@@ -95,10 +95,10 @@ const OcrEngine = (function () {
     return canvas;
   }
 
-  // 스킬명 정리: 특수문자/아이콘 잔해 제거 (한글, 영문, 숫자, 공백만 남김)
+  // 스킬명 정리: 한글과 공백만 남김 (스킬명은 한글만 존재)
   function cleanSkillName(text) {
     return text
-      .replace(/[^가-힣a-zA-Z0-9\s]/g, '')
+      .replace(/[^가-힣\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
   }
