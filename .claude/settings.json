@@ -18,7 +18,22 @@
       "Bash(git remote set-url origin https://Jin54@github.com/Jin54/ocr.git)",
       "Bash(git pull origin main --allow-unrelated-histories --no-edit)",
       "Bash(git stash)",
-      "Bash(git stash pop)"
+      "Bash(git stash pop)",
+      "Bash(git add README.md)",
+      "Bash(git push)",
+      "Bash(git add index.html js/app.js js/result-table.js)",
+      "Bash(git rm js/region-selector.js js/template-manager.js)",
+      "Bash(git add index.html js/app.js js/ocr-engine.js js/result-table.js)",
+      "Bash(git add js/image-manager.js)",
+      "Bash(git add index.html css/style.css)",
+      "WebFetch(domain:jin54.github.io)",
+      "Bash(git add index.html css/style.css js/app.js js/ocr-engine.js js/result-table.js js/image-manager.js js/region-selector.js)",
+      "Bash(git add js/ocr-engine.js index.html)",
+      "Bash(node -e \":*)",
+      "Bash(python3 -c \"from PIL import Image; print\\(''PIL OK''\\)\")",
+      "Bash(pip install Pillow)",
+      "Bash(start test_preprocess.html)",
+      "Bash(git add .claude/settings.json)"
     ]
   }
 }
