@@ -31,29 +31,21 @@ const OcrEngine = (function () {
     await worker.setParameters({
       preserve_interword_spaces: '1',
       user_defined_dpi: '300',
-      tessedit_pageseg_mode: '7', // SINGLE_LINE - 한 줄씩 인식
+      tessedit_pageseg_mode: '6', // SINGLE_BLOCK - 여러 줄 텍스트 블록
     });
 
     isInitialized = true;
   }
 
-  // 영역을 크롭하고 전처리 (왼쪽 아이콘 영역 제거)
+  // 영역을 크롭하고 전처리 (아이콘 자르기 없이 원본 영역 그대로)
   function preprocessRegion(imageEl, region) {
     const nw = imageEl.naturalWidth;
     const nh = imageEl.naturalHeight;
 
-    let left = Math.round(region.nx * nw);
+    const left = Math.round(region.nx * nw);
     const top = Math.round(region.ny * nh);
-    let width = Math.round(region.nw * nw);
+    const width = Math.round(region.nw * nw);
     const height = Math.round(region.nh * nh);
-
-    // 왼쪽 아이콘 영역 제거 (줄 높이의 약 1.2배만큼 왼쪽을 잘라냄)
-    // 각 줄의 높이를 추정하여 아이콘 크기를 계산
-    const lineHeight = Math.min(height, 30); // 한 줄 기준 아이콘 크기 추정
-    const iconCut = Math.round(lineHeight * 1.2);
-    left += iconCut;
-    width -= iconCut;
-    if (width < 10) width = Math.round(region.nw * nw); // 너무 작으면 원본 유지
 
     const canvas = document.createElement('canvas');
     const scale = Math.max(1, Math.ceil(300 / height));
@@ -78,33 +70,35 @@ const OcrEngine = (function () {
     return canvas;
   }
 
-  // 스킬명에서 특수문자 제거 (한글, 영문, 숫자, 공백, +, - 만 허용)
-  function cleanText(text) {
+  // 스킬명 정리: 특수문자/아이콘 잔해 제거 (한글, 영문, 숫자, 공백만 남김)
+  function cleanSkillName(text) {
     return text
-      .replace(/[^가-힣a-zA-Z0-9\s+\-\.]/g, '')
+      .replace(/[^가-힣a-zA-Z0-9\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
-  // OCR 결과에서 스킬명 + 레벨 파싱
+  // OCR 결과 한 줄에서 스킬명 + 레벨 파싱
   function parseSkillLine(text) {
-    const cleaned = cleanText(text);
-    if (!cleaned) return null;
+    // 먼저 특수문자 제거 전에 Lv/+숫자 패턴을 찾음
+    const trimmed = text.trim();
+    if (!trimmed) return null;
 
-    // "격파쇄 Lv +2" 또는 "충격 적중 Lv +3" 패턴
-    let match = cleaned.match(/^(.+?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
+    // "아이콘잔해 격파쇄 Lv +2" 패턴
+    let match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
     if (match) {
-      return { name: match[1].trim(), level: '+' + match[2] };
+      const name = cleanSkillName(match[1]);
+      if (name) return { name, level: '+' + match[2] };
     }
 
-    // "격파쇄 +2" 패턴 (Lv 없이)
-    match = cleaned.match(/^(.+?)\s+\+(\d+)\s*$/);
+    // "아이콘잔해 격파쇄 +2" 패턴 (Lv 없이)
+    match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
     if (match) {
-      return { name: match[1].trim(), level: '+' + match[2] };
+      const name = cleanSkillName(match[1]);
+      if (name) return { name, level: '+' + match[2] };
     }
 
-    // 매칭 안되면 전체 텍스트를 이름으로
-    return { name: cleaned, level: '' };
+    return null; // 스킬+레벨 패턴 없으면 무시
   }
 
   async function recognizeRegions(imageEl, regions, onProgress) {
@@ -139,17 +133,19 @@ const OcrEngine = (function () {
         try {
           const { data } = await worker.recognize(preprocessed);
           const rawText = data.text.trim();
-          console.log(`OCR [${region.label}]:`, rawText);
+          console.log(`OCR [${region.label}] raw:`, rawText);
 
-          // 여러 줄이 나올 수 있으므로 줄별로 파싱
+          // 줄별로 파싱하여 스킬+레벨 패턴만 추출
           const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
           const skills = [];
           for (const line of lines) {
             const parsed = parseSkillLine(line);
-            if (parsed && parsed.name) {
+            if (parsed) {
               skills.push(parsed);
             }
           }
+
+          console.log(`OCR [${region.label}] parsed:`, skills);
 
           results.push({
             regionLabel: region.label,
@@ -177,5 +173,5 @@ const OcrEngine = (function () {
     }
   }
 
-  return { recognizeRegions, cleanText, parseSkillLine };
+  return { recognizeRegions };
 })();
