@@ -37,7 +37,8 @@ const OcrEngine = (function () {
     isInitialized = true;
   }
 
-  // 영역을 크롭하고 전처리 (아이콘 자르기 없이 원본 영역 그대로)
+  // 영역을 크롭하고 색상 기반 전처리
+  // 텍스트 색상(파랑/초록/흰색)만 남기고 아이콘+배경 제거
   function preprocessRegion(imageEl, region) {
     const nw = imageEl.naturalWidth;
     const nh = imageEl.naturalHeight;
@@ -48,7 +49,7 @@ const OcrEngine = (function () {
     const height = Math.round(region.nh * nh);
 
     const canvas = document.createElement('canvas');
-    const scale = Math.max(1, Math.ceil(300 / height));
+    const scale = Math.max(1, Math.ceil(400 / height));
     canvas.width = width * scale;
     canvas.height = height * scale;
 
@@ -57,13 +58,37 @@ const OcrEngine = (function () {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(imageEl, left, top, width, height, 0, 0, canvas.width, canvas.height);
 
-    // Grayscale + contrast boost
+    // 색상 기반 필터링: 텍스트(파랑/초록/흰색)만 검정으로, 나머지 흰색으로
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
-      const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      const enhanced = gray < 128 ? Math.max(0, gray - 40) : Math.min(255, gray + 40);
-      data[i] = data[i + 1] = data[i + 2] = enhanced;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+      let isText = false;
+
+      // 흰색/밝은 텍스트 (Lv +2 등): 밝기 높고 채도 낮음
+      if (brightness > 160) {
+        isText = true;
+      }
+
+      // 파랑/초록/시안 계열 텍스트 (스킬명): 채도가 있고 어느정도 밝음
+      if (brightness > 60) {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const saturation = max > 0 ? (max - min) / max : 0;
+        // 채도가 있고 파랑 또는 초록이 우세
+        if (saturation > 0.2 && (b > r || g > r)) {
+          isText = true;
+        }
+      }
+
+      // 텍스트 → 검정, 배경/아이콘 → 흰색 (Tesseract는 흰 배경+검정 텍스트가 최적)
+      if (isText) {
+        data[i] = data[i + 1] = data[i + 2] = 0; // 검정
+      } else {
+        data[i] = data[i + 1] = data[i + 2] = 255; // 흰색
+      }
     }
     ctx.putImageData(imageData, 0, 0);
 
