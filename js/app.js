@@ -1,14 +1,10 @@
-/* app.js - Application entry point, event wiring, global state */
+/* app.js - Application entry point */
 
 const App = (function () {
   function init() {
-    // Initialize modules
     ImageManager.init(onImageSelected);
-    RegionSelector.init();
     ExportManager.init();
-    TemplateManager.init();
 
-    // OCR buttons
     document.getElementById('btn-run-ocr').addEventListener('click', runOcrAll);
     document.getElementById('btn-clear-results').addEventListener('click', () => {
       if (confirm('모든 결과를 삭제할까요?')) {
@@ -18,10 +14,7 @@ const App = (function () {
   }
 
   function onImageSelected(imgData) {
-    // Wait for the image to render, then sync canvas
-    requestAnimationFrame(() => {
-      RegionSelector.onImageChange();
-    });
+    // 이미지 선택 시 별도 처리 없음
   }
 
   async function runOcrAll() {
@@ -31,16 +24,9 @@ const App = (function () {
       return;
     }
 
-    const regions = RegionSelector.getRegions();
-    if (regions.length === 0) {
-      toast('대표 이미지에서 OCR 영역을 먼저 그려주세요', 'error');
-      return;
-    }
-
     setOcrButtonsEnabled(false);
     showProgress(true);
 
-    // 별도의 img 엘리먼트를 사용하여 각 이미지를 로드
     for (let i = 0; i < allImages.length; i++) {
       const imgData = allImages[i];
 
@@ -50,7 +36,6 @@ const App = (function () {
         progress: i / allImages.length,
       });
 
-      // 새 이미지 엘리먼트를 만들어서 로드
       const imgEl = new Image();
       imgEl.src = imgData.dataUrl;
       await new Promise(resolve => {
@@ -58,9 +43,11 @@ const App = (function () {
         if (imgEl.complete) resolve();
       });
 
-      const results = await OcrEngine.recognizeImage(imgEl, regions, onOcrProgress);
-      if (results) {
-        ResultTable.addResults(imgData.fileName, results);
+      const skills = await OcrEngine.recognizeImage(imgEl, onOcrProgress);
+      if (skills && skills.length > 0) {
+        ResultTable.addResults(imgData.fileName, skills);
+      } else if (skills && skills.length === 0) {
+        ResultTable.addResults(imgData.fileName, [{ name: '[인식 실패]', level: '' }]);
       }
     }
 
@@ -99,7 +86,6 @@ const App = (function () {
     setTimeout(() => div.remove(), 3000);
   }
 
-  // Initialize on DOM ready
   document.addEventListener('DOMContentLoaded', init);
 
   return { toast };

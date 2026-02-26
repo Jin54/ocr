@@ -1,32 +1,46 @@
-/* result-table.js - Editable results table: 파일이름 - 데이터 */
+/* result-table.js - 파일 | 스킬1 | 레벨1 | 스킬2 | 레벨2 ... */
 
 const ResultTable = (function () {
-  let columns = ['파일', '데이터'];
-  let rows = [];
+  let maxSkills = 0;
+  let rows = []; // { fileName, skills: [{name, level}, ...] }
 
   const section = () => document.getElementById('results-section');
   const thead = () => document.querySelector('#results-table thead');
   const tbody = () => document.querySelector('#results-table tbody');
 
-  function addResults(fileName, ocrResults) {
-    // 모든 영역의 텍스트를 하나로 합침
-    const text = ocrResults.map(r => r.text).filter(t => t && t !== '[인식 실패]').join(' | ');
-
-    rows.push({ '파일': fileName, '데이터': text });
+  function addResults(fileName, skills) {
+    if (skills.length > maxSkills) {
+      maxSkills = skills.length;
+    }
+    rows.push({ fileName, skills });
     render();
     section().classList.remove('hidden');
   }
 
+  function getColumns() {
+    const cols = ['파일'];
+    for (let i = 0; i < maxSkills; i++) {
+      cols.push('스킬' + (i + 1));
+      cols.push('레벨' + (i + 1));
+    }
+    return cols;
+  }
+
   function render() {
+    const cols = getColumns();
+
     // Header
-    const headerHtml = columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '<th></th>';
+    const headerHtml = cols.map(c => `<th>${c}</th>`).join('') + '<th></th>';
     thead().innerHTML = `<tr>${headerHtml}</tr>`;
 
     // Body
     const bodyHtml = rows.map((row, ri) => {
-      const cells = columns.map(c =>
-        `<td contenteditable="true" data-row="${ri}" data-col="${escapeAttr(c)}">${escapeHtml(row[c] || '')}</td>`
-      ).join('');
+      let cells = `<td contenteditable="true" data-row="${ri}" data-col="fileName">${escapeHtml(row.fileName)}</td>`;
+      for (let i = 0; i < maxSkills; i++) {
+        const skill = row.skills[i];
+        cells += `<td contenteditable="true" data-row="${ri}" data-col="name_${i}">${escapeHtml(skill ? skill.name : '')}</td>`;
+        cells += `<td contenteditable="true" data-row="${ri}" data-col="level_${i}">${escapeHtml(skill ? skill.level : '')}</td>`;
+      }
       return `<tr>${cells}<td class="row-delete" data-row="${ri}">&times;</td></tr>`;
     }).join('');
     tbody().innerHTML = bodyHtml;
@@ -41,6 +55,8 @@ const ResultTable = (function () {
       btn.addEventListener('click', (e) => {
         const ri = parseInt(e.target.dataset.row);
         rows.splice(ri, 1);
+        // maxSkills 재계산
+        maxSkills = rows.reduce((max, r) => Math.max(max, r.skills.length), 0);
         if (rows.length === 0) {
           section().classList.add('hidden');
         }
@@ -52,27 +68,46 @@ const ResultTable = (function () {
   function onCellEdit(e) {
     const ri = parseInt(e.target.dataset.row);
     const col = e.target.dataset.col;
-    rows[ri][col] = e.target.textContent;
+    const value = e.target.textContent;
+
+    if (col === 'fileName') {
+      rows[ri].fileName = value;
+    } else if (col.startsWith('name_')) {
+      const idx = parseInt(col.split('_')[1]);
+      if (!rows[ri].skills[idx]) rows[ri].skills[idx] = { name: '', level: '' };
+      rows[ri].skills[idx].name = value;
+    } else if (col.startsWith('level_')) {
+      const idx = parseInt(col.split('_')[1]);
+      if (!rows[ri].skills[idx]) rows[ri].skills[idx] = { name: '', level: '' };
+      rows[ri].skills[idx].level = value;
+    }
   }
 
   function clear() {
     rows = [];
+    maxSkills = 0;
     render();
     section().classList.add('hidden');
   }
 
   function getData() {
-    return { columns, rows };
+    const cols = getColumns();
+    const exportRows = rows.map(row => {
+      const obj = { '파일': row.fileName };
+      for (let i = 0; i < maxSkills; i++) {
+        const skill = row.skills[i];
+        obj['스킬' + (i + 1)] = skill ? skill.name : '';
+        obj['레벨' + (i + 1)] = skill ? skill.level : '';
+      }
+      return obj;
+    });
+    return { columns: cols, rows: exportRows };
   }
 
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
-  }
-
-  function escapeAttr(str) {
-    return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   return { addResults, clear, getData, render };
