@@ -158,6 +158,31 @@ section {
   line-height: 1.5;
 }
 
+.guide-box {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.guide-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+
+.guide-steps {
+  font-size: 0.75rem;
+  color: #888;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+
+.guide-steps strong {
+  color: #ccc;
+}
+
 /* === Thumbnail Strip === */
 #thumbnail-section {
   background: #1a1a1a;
