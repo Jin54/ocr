@@ -103,27 +103,39 @@ const OcrEngine = (function () {
       .trim();
   }
 
+  // 선택된 직업
+  let selectedClass = null;
+
+  function setClass(className) {
+    selectedClass = className || null;
+  }
+
   // OCR 결과 한 줄에서 스킬명 + 레벨 파싱
   function parseSkillLine(text) {
-    // 먼저 특수문자 제거 전에 Lv/+숫자 패턴을 찾음
     const trimmed = text.trim();
     if (!trimmed) return null;
 
-    // "아이콘잔해 격파쇄 Lv +2" 패턴
+    // "격파쇄 Lv +2" 패턴
     let match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
-      if (name) return { name, level: '+' + match[2] };
+      if (name) {
+        const matched = SkillData.matchSkill(name, selectedClass);
+        return { name: matched || name, level: '+' + match[2] };
+      }
     }
 
-    // "아이콘잔해 격파쇄 +2" 패턴 (Lv 없이)
+    // "격파쇄 +2" 패턴 (Lv 없이)
     match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
-      if (name) return { name, level: '+' + match[2] };
+      if (name) {
+        const matched = SkillData.matchSkill(name, selectedClass);
+        return { name: matched || name, level: '+' + match[2] };
+      }
     }
 
-    return null; // 스킬+레벨 패턴 없으면 무시
+    return null;
   }
 
   async function recognizeRegions(imageEl, regions, onProgress) {
@@ -198,5 +210,5 @@ const OcrEngine = (function () {
     }
   }
 
-  return { recognizeRegions };
+  return { recognizeRegions, setClass };
 })();

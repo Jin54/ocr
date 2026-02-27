@@ -5,12 +5,26 @@ const App = (function () {
     ImageManager.init(onImageSelected);
     RegionSelector.init();
     ExportManager.init();
+    initClassSelect();
 
     document.getElementById('btn-run-ocr').addEventListener('click', runOcrAll);
     document.getElementById('btn-clear-results').addEventListener('click', () => {
       if (confirm('모든 결과를 삭제할까요?')) {
         ResultTable.clear();
       }
+    });
+  }
+
+  function initClassSelect() {
+    const select = document.getElementById('class-select');
+    for (const name of SkillData.getClassNames()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', () => {
+      OcrEngine.setClass(select.value || null);
     });
   }
 

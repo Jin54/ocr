@@ -46,6 +46,9 @@
               <li>아이콘을 제외하고 텍스트 부분만 선택</li>
               <li>영역 지정 후 <strong>OCR 실행</strong></li>
             </ol>
+            <p class="guide-title" style="margin-top:8px">예시</p>
+            <img src="sample.jpg" alt="예시 이미지 1" class="guide-image">
+            <img src="sample2.jpg" alt="예시 이미지 2" class="guide-image">
           </div>
           <div id="region-list"></div>
         </div>
@@ -55,6 +58,9 @@
     <!-- OCR Controls -->
     <section id="ocr-section" class="hidden">
       <div id="ocr-controls">
+        <select id="class-select" class="class-select">
+          <option value="">직업 선택 (전체)</option>
+        </select>
         <button id="btn-run-ocr" class="btn btn-primary btn-large">전체 이미지 OCR 실행</button>
         <div id="progress-container" class="hidden">
           <div id="progress-bar">
@@ -94,6 +100,7 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
   <!-- App Modules -->
+  <script src="js/skill-data.js"></script>
   <script src="js/image-manager.js"></script>
   <script src="js/region-selector.js"></script>
   <script src="js/ocr-engine.js"></script>

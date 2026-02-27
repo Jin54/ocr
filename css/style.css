@@ -183,6 +183,13 @@ section {
   color: #ccc;
 }
 
+.guide-image {
+  width: 100%;
+  border-radius: 4px;
+  margin-top: 6px;
+  border: 1px solid #333;
+}
+
 /* === Thumbnail Strip === */
 #thumbnail-section {
   background: #1a1a1a;
@@ -402,6 +409,20 @@ section {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.class-select {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.class-select:hover {
+  border-color: #555;
 }
 
 #progress-container {
