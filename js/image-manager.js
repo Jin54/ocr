@@ -38,6 +38,22 @@ const ImageManager = (function () {
     });
   }
 
+  // 이미지의 오른쪽 1/3을 크롭한 dataUrl 생성
+  function cropRightThird(img) {
+    const canvas = document.createElement('canvas');
+    const cropX = Math.round(img.naturalWidth * 2 / 3);
+    const cropW = img.naturalWidth - cropX;
+    canvas.width = cropW;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, cropX, 0, cropW, img.naturalHeight, 0, 0, cropW, img.naturalHeight);
+    return {
+      dataUrl: canvas.toDataURL('image/jpeg', 0.95),
+      naturalWidth: cropW,
+      naturalHeight: img.naturalHeight,
+    };
+  }
+
   function handleFiles(fileList) {
     const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
     if (files.length === 0) return;
@@ -49,12 +65,14 @@ const ImageManager = (function () {
         const img = new Image();
         img.onload = () => {
           const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+          const cropped = cropRightThird(img);
           images.push({
             id,
             fileName: file.name,
-            dataUrl: e.target.result,
-            naturalWidth: img.naturalWidth,
-            naturalHeight: img.naturalHeight,
+            originalDataUrl: e.target.result,
+            dataUrl: cropped.dataUrl,
+            naturalWidth: cropped.naturalWidth,
+            naturalHeight: cropped.naturalHeight,
           });
           loaded++;
           if (loaded === files.length) {
@@ -108,7 +126,6 @@ const ImageManager = (function () {
     wsImg.src = img.dataUrl;
     workspaceSection().classList.remove('hidden');
     document.getElementById('ocr-section').classList.remove('hidden');
-
     renderThumbnails();
 
     if (onSelectCallback) {
@@ -136,22 +153,6 @@ const ImageManager = (function () {
 
   function getAll() {
     return images;
-  }
-
-  function selectImage(id) {
-    const img = images.find(i => i.id === id);
-    if (!img) return;
-
-    selectedId = id;
-    const wsImg = workspaceImage();
-    wsImg.src = img.dataUrl;
-    workspaceSection().classList.remove('hidden');
-    document.getElementById('ocr-section').classList.remove('hidden');
-    renderThumbnails();
-
-    if (onSelectCallback) {
-      wsImg.onload = () => onSelectCallback(img);
-    }
   }
 
   return { init, getSelected, getAll, selectImage };
