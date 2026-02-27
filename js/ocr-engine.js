@@ -94,17 +94,50 @@ const OcrEngine = (function () {
     return IGNORE_WORDS.some(w => name.includes(w));
   }
 
-  // "A의 B" 파싱 (SET과 TYPE 둘 다 매칭될 때만 인정)
+  // 세트/종류 이름 매칭 (정확 + 포함만, levenshtein 미사용)
+  function matchExact(text, list) {
+    for (const item of list) {
+      if (text === item) return item;
+    }
+    for (const item of list) {
+      if (text.includes(item) || item.includes(text)) return item;
+    }
+    return null;
+  }
+
+  // 스킬 매칭용 (levenshtein 포함, 관대하게)
+  function matchClosest(text, list) {
+    for (const item of list) {
+      if (text === item) return item;
+    }
+    for (const item of list) {
+      if (text.includes(item) || item.includes(text)) return item;
+    }
+    let best = null, bestDist = Infinity;
+    for (const item of list) {
+      const dist = SkillData.levenshtein(text, item);
+      if (dist < bestDist) { bestDist = dist; best = item; }
+    }
+    if (best && bestDist <= Math.floor(best.length * 0.3)) return best;
+    return null;
+  }
+
+  // "A의 B" 파싱 (정확 매칭만 사용, 스킬명 오인 방지)
   function parseTypeName(line) {
     const match = line.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
     if (match) {
-      const setName = matchClosest(match[1], SET_NAMES);
-      const typeName = matchClosest(match[2], TYPE_NAMES);
+      const setName = matchExact(match[1], SET_NAMES);
+      const typeName = matchExact(match[2], TYPE_NAMES);
       if (setName && typeName) {
         return { set: setName, type: typeName };
       }
     }
     return null;
+  }
+
+  // Lv 패턴이 있는지 확인
+  function hasLvPattern(text) {
+    return /(?:Lv|LV|lv|Iv)\s*\+?\s*\d+/.test(text) || /\+\d+/.test(text);
   }
 
   // 스킬+레벨 파싱
@@ -133,22 +166,6 @@ const OcrEngine = (function () {
     return null;
   }
 
-  function matchClosest(text, list) {
-    for (const item of list) {
-      if (text === item) return item;
-    }
-    for (const item of list) {
-      if (text.includes(item) || item.includes(text)) return item;
-    }
-    let best = null, bestDist = Infinity;
-    for (const item of list) {
-      const dist = SkillData.levenshtein(text, item);
-      if (dist < bestDist) { bestDist = dist; best = item; }
-    }
-    if (best && bestDist <= Math.floor(best.length * 0.5)) return best;
-    return null;
-  }
-
   // 전체 OCR 텍스트 파싱
   function parseFullText(rawText) {
     const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -158,16 +175,26 @@ const OcrEngine = (function () {
     const skills = [];
 
     for (const line of lines) {
-      // "A의 B" 패턴
+      // Lv 패턴이 있으면 스킬 우선 (스킬명에 "의"가 있어도 타입으로 오인 방지)
+      if (skills.length < 4 && hasLvPattern(line)) {
+        const skillParsed = parseSkillLine(line);
+        if (skillParsed) {
+          skills.push(skillParsed);
+          continue;
+        }
+      }
+
+      // "A의 B" 패턴 (Lv가 없는 라인에서만)
       if (!set && !type) {
         const typeParsed = parseTypeName(line);
         if (typeParsed) {
           set = typeParsed.set;
           type = typeParsed.type;
+          continue;
         }
       }
 
-      // 스킬 패턴 (최대 4개)
+      // Lv가 없지만 스킬일 수 있는 경우도 체크
       if (skills.length < 4) {
         const skillParsed = parseSkillLine(line);
         if (skillParsed) {
@@ -177,9 +204,29 @@ const OcrEngine = (function () {
     }
 
     // fallback: 알려진 이름 직접 탐색
-    if (!set && !type) {
-      for (const s of SET_NAMES) { if (rawText.includes(s)) { set = s; break; } }
-      for (const t of TYPE_NAMES) { if (rawText.includes(t)) { type = t; break; } }
+    if (!set || !type) {
+      for (const line of lines) {
+        if (set && type) break;
+        const fullMatch = line.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
+        if (fullMatch) {
+          if (!set) {
+            const s = matchExact(fullMatch[1], SET_NAMES);
+            if (s) set = s;
+          }
+          if (!type) {
+            const t = matchExact(fullMatch[2], TYPE_NAMES);
+            if (t) type = t;
+          }
+        }
+      }
+    }
+    if (!set || !type) {
+      if (!set) {
+        for (const s of SET_NAMES) { if (rawText.includes(s)) { set = s; break; } }
+      }
+      if (!type) {
+        for (const t of TYPE_NAMES) { if (rawText.includes(t)) { type = t; break; } }
+      }
     }
 
     return { set, type, skills };
