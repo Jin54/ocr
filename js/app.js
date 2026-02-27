@@ -7,9 +7,11 @@ const App = (function () {
     initClassSelect();
 
     document.getElementById('btn-run-ocr').addEventListener('click', runOcrAll);
+    document.getElementById('btn-copy-logs').addEventListener('click', copyLogs);
     document.getElementById('btn-clear-results').addEventListener('click', () => {
       if (confirm('모든 결과를 삭제할까요?')) {
         ResultTable.clear();
+        OcrEngine.clearLogs();
       }
     });
   }
@@ -40,6 +42,7 @@ const App = (function () {
 
     setOcrButtonsEnabled(false);
     showProgress(true);
+    OcrEngine.clearLogs();
 
     for (let i = 0; i < allImages.length; i++) {
       const imgData = allImages[i];
@@ -55,6 +58,7 @@ const App = (function () {
 
       const result = await OcrEngine.recognizeImage(imgEl, onOcrProgress);
       if (result) {
+        OcrEngine.addLog(imgData.fileName, result);
         ResultTable.addResult(imgData.fileName, result);
       }
     }
@@ -76,6 +80,20 @@ const App = (function () {
     if (!show) {
       document.getElementById('progress-fill').style.width = '0%';
       document.getElementById('progress-text').textContent = '';
+    }
+  }
+
+  async function copyLogs() {
+    const logData = OcrEngine.getLogs();
+    if (logData.length === 0) {
+      toast('로그가 없습니다. OCR을 먼저 실행해주세요', 'error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(logData, null, 2));
+      toast('OCR 로그 ' + logData.length + '건 클립보드 복사 완료', 'success');
+    } catch (err) {
+      toast('클립보드 복사 실패', 'error');
     }
   }
 

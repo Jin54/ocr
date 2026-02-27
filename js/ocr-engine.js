@@ -4,6 +4,7 @@ const OcrEngine = (function () {
   let worker = null;
   let isInitialized = false;
   let isProcessing = false;
+  const logs = [];
 
   const SET_NAMES = ['활력', '마력', '광분', '순수'];
   const TYPE_NAMES = ['성배', '양피지', '나침반', '종', '거울', '천칭'];
@@ -306,6 +307,11 @@ const OcrEngine = (function () {
       const result = parseFullText(rawText);
       console.log('파싱 결과:', result);
 
+      // 로그 수집 (파일명은 외부에서 설정)
+      result._rawText = rawText;
+      result._imageSize = imageEl.naturalWidth + 'x' + imageEl.naturalHeight;
+      result._scale = Math.max(2, Math.ceil(1200 / imageEl.naturalHeight));
+
       onProgress && onProgress({ status: 'done', text: '완료', progress: 1 });
       return result;
     } catch (err) {
@@ -317,5 +323,23 @@ const OcrEngine = (function () {
     }
   }
 
-  return { recognizeImage, setClass };
+  function addLog(fileName, result) {
+    const entry = {
+      file: fileName,
+      rawText: result._rawText || '',
+      imageSize: result._imageSize || '',
+      scale: result._scale || '',
+      parsed: {
+        set: result.set,
+        type: result.type,
+        skills: result.skills,
+      },
+    };
+    logs.push(entry);
+  }
+
+  function getLogs() { return logs; }
+  function clearLogs() { logs.length = 0; }
+
+  return { recognizeImage, setClass, addLog, getLogs, clearLogs };
 })();
