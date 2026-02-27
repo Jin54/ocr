@@ -33,7 +33,13 @@
       "Bash(python3 -c \"from PIL import Image; print\\(''PIL OK''\\)\")",
       "Bash(pip install Pillow)",
       "Bash(start test_preprocess.html)",
-      "Bash(git add .claude/settings.json)"
+      "Bash(git add .claude/settings.json)",
+      "Bash(git add js/ocr-engine.js)",
+      "Bash(git add css/style.css index.html js/app.js js/ocr-engine.js js/skill-data.js)",
+      "Bash(ls /c/Users/jwy/Desktop/Repos/ocr/sample*.jpg /c/Users/jwy/Desktop/Repos/ocr/ICO.jpg)",
+      "Bash(git add css/style.css index.html img/guide1.jpg img/guide2.jpg)",
+      "Bash(git add index.html)",
+      "Bash(git add css/style.css index.html img/guide1.jpg img/guide2.jpg .claude/settings.json)"
     ]
   }
 }
