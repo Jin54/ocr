@@ -1,9 +1,10 @@
-/* image-manager.js - Image upload, drag-and-drop, thumbnail gallery */
+/* image-manager.js - Image upload, drag-and-drop, crop ratio control */
 
 const ImageManager = (function () {
-  let images = [];
+  let images = []; // { id, fileName, originalDataUrl, originalWidth, originalHeight, dataUrl, naturalWidth, naturalHeight }
   let selectedId = null;
   let onSelectCallback = null;
+  let cropRatio = 0.33; // 오른쪽에서 크롭할 비율 (기본 33%)
 
   const uploadZone = () => document.getElementById('upload-zone');
   const fileInput = () => document.getElementById('file-input');
@@ -36,12 +37,25 @@ const ImageManager = (function () {
       handleFiles(e.target.files);
       e.target.value = '';
     });
+
+    // 크롭 비율 슬라이더
+    const slider = document.getElementById('crop-ratio');
+    const label = document.getElementById('crop-ratio-value');
+    if (slider) {
+      slider.value = Math.round(cropRatio * 100);
+      label.textContent = Math.round(cropRatio * 100) + '%';
+      slider.addEventListener('input', (e) => {
+        cropRatio = parseInt(e.target.value) / 100;
+        label.textContent = e.target.value + '%';
+        recropAll();
+      });
+    }
   }
 
-  // 이미지의 오른쪽 1/3을 크롭한 dataUrl 생성
-  function cropRightThird(img) {
+  // 이미지의 오른쪽 N%를 크롭
+  function cropRight(img, ratio) {
     const canvas = document.createElement('canvas');
-    const cropX = Math.round(img.naturalWidth * 2 / 3);
+    const cropX = Math.round(img.naturalWidth * (1 - ratio));
     const cropW = img.naturalWidth - cropX;
     canvas.width = cropW;
     canvas.height = img.naturalHeight;
@@ -52,6 +66,36 @@ const ImageManager = (function () {
       naturalWidth: cropW,
       naturalHeight: img.naturalHeight,
     };
+  }
+
+  // 원본 이미지로부터 크롭 (Image 객체 사용)
+  function cropFromOriginal(imgData) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const cropped = cropRight(img, cropRatio);
+        imgData.dataUrl = cropped.dataUrl;
+        imgData.naturalWidth = cropped.naturalWidth;
+        imgData.naturalHeight = cropped.naturalHeight;
+        resolve();
+      };
+      img.src = imgData.originalDataUrl;
+    });
+  }
+
+  // 비율 변경 시 전체 이미지 재크롭
+  async function recropAll() {
+    for (const imgData of images) {
+      await cropFromOriginal(imgData);
+    }
+    renderThumbnails();
+    if (selectedId) {
+      const img = images.find(i => i.id === selectedId);
+      if (img) {
+        const wsImg = workspaceImage();
+        wsImg.src = img.dataUrl;
+      }
+    }
   }
 
   function handleFiles(fileList) {
@@ -65,11 +109,13 @@ const ImageManager = (function () {
         const img = new Image();
         img.onload = () => {
           const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-          const cropped = cropRightThird(img);
+          const cropped = cropRight(img, cropRatio);
           images.push({
             id,
             fileName: file.name,
             originalDataUrl: e.target.result,
+            originalWidth: img.naturalWidth,
+            originalHeight: img.naturalHeight,
             dataUrl: cropped.dataUrl,
             naturalWidth: cropped.naturalWidth,
             naturalHeight: cropped.naturalHeight,

@@ -1,11 +1,10 @@
-/* ocr-engine.js - Tesseract.js worker, region-based OCR with clean output */
+/* ocr-engine.js - 크롭된 이미지 전체를 OCR하여 자동 파싱 */
 
 const OcrEngine = (function () {
   let worker = null;
   let isInitialized = false;
   let isProcessing = false;
 
-  // 세트명/종류명 매칭 리스트
   const SET_NAMES = ['활력', '마력', '광분', '순수'];
   const TYPE_NAMES = ['성배', '양피지', '나침반', '종', '거울', '천칭'];
 
@@ -41,27 +40,18 @@ const OcrEngine = (function () {
     isInitialized = true;
   }
 
-  // 영역을 크롭하고 색상 기반 전처리
-  function preprocessRegion(imageEl, region) {
-    const nw = imageEl.naturalWidth;
-    const nh = imageEl.naturalHeight;
-
-    const left = Math.round(region.nx * nw);
-    const top = Math.round(region.ny * nh);
-    const width = Math.round(region.nw * nw);
-    const height = Math.round(region.nh * nh);
-
+  // 이미지 전처리: 텍스트 색상만 검정으로, 나머지 흰색
+  function preprocessImage(imageEl) {
     const canvas = document.createElement('canvas');
-    const scale = Math.max(1, Math.ceil(400 / height));
-    canvas.width = width * scale;
-    canvas.height = height * scale;
+    const scale = Math.max(1, Math.ceil(600 / imageEl.naturalHeight));
+    canvas.width = imageEl.naturalWidth * scale;
+    canvas.height = imageEl.naturalHeight * scale;
 
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(imageEl, left, top, width, height, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imageEl, 0, 0, canvas.width, canvas.height);
 
-    // 색상 기반 필터링: 텍스트(파랑/초록/흰색/노란색)만 검정으로, 나머지 흰색으로
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
@@ -70,12 +60,12 @@ const OcrEngine = (function () {
 
       let isText = false;
 
-      // 흰색/밝은 텍스트: 밝기 높고 채도 낮음
+      // 밝은 텍스트 (흰색, 노란색)
       if (brightness > 160) {
         isText = true;
       }
 
-      // 파랑/초록/시안/노란색 계열 텍스트: 채도가 있고 어느정도 밝음
+      // 채도 있는 텍스트 (파랑, 초록, 노랑)
       if (brightness > 60) {
         const max = Math.max(r, g, b);
         const min = Math.min(r, g, b);
@@ -92,26 +82,31 @@ const OcrEngine = (function () {
       }
     }
     ctx.putImageData(imageData, 0, 0);
-
     return canvas;
   }
 
-  // 스킬명 정리: 한글과 공백만 남김
+  // 스킬명 정리: 한글과 공백만
   function cleanSkillName(text) {
-    return text
-      .replace(/[^가-힣\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return text.replace(/[^가-힣\s]/g, '').replace(/\s+/g, ' ').trim();
   }
 
-  // 선택된 직업
   let selectedClass = null;
-
   function setClass(className) {
     selectedClass = className || null;
   }
 
-  // OCR 결과에서 스킬명 + 레벨 파싱
+  // "A의 B" 파싱
+  function parseTypeName(text) {
+    const match = text.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
+    if (match) {
+      const setName = matchClosest(match[1], SET_NAMES);
+      const typeName = matchClosest(match[2], TYPE_NAMES);
+      return { set: setName || match[1], type: typeName || match[2] };
+    }
+    return null;
+  }
+
+  // 스킬+레벨 파싱
   function parseSkillLine(text) {
     const trimmed = text.trim();
     if (!trimmed) return null;
@@ -137,55 +132,63 @@ const OcrEngine = (function () {
     return null;
   }
 
-  // "A의 B" 패턴에서 세트명(A)과 종류명(B) 파싱
-  function parseTypeName(rawText) {
-    const cleaned = rawText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-    console.log('종류 OCR raw:', cleaned);
-
-    // "A의 B" 패턴 매칭
-    const match = cleaned.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
-    if (match) {
-      let setName = matchClosest(match[1], SET_NAMES);
-      let typeName = matchClosest(match[2], TYPE_NAMES);
-      return { set: setName || match[1], type: typeName || match[2] };
-    }
-
-    // 패턴 매칭 실패 시 알려진 이름으로 직접 탐색
-    let foundSet = null, foundType = null;
-    for (const s of SET_NAMES) {
-      if (cleaned.includes(s)) { foundSet = s; break; }
-    }
-    for (const t of TYPE_NAMES) {
-      if (cleaned.includes(t)) { foundType = t; break; }
-    }
-    if (foundSet || foundType) {
-      return { set: foundSet || '', type: foundType || '' };
-    }
-
-    return { set: '', type: '', raw: cleaned };
-  }
-
-  // 가장 가까운 이름 매칭
   function matchClosest(text, list) {
-    // 정확히 일치
     for (const item of list) {
       if (text === item) return item;
     }
-    // 포함
     for (const item of list) {
       if (text.includes(item) || item.includes(text)) return item;
     }
-    // Levenshtein
     let best = null, bestDist = Infinity;
     for (const item of list) {
       const dist = SkillData.levenshtein(text, item);
       if (dist < bestDist) { bestDist = dist; best = item; }
     }
-    if (bestDist <= Math.floor(best.length * 0.5)) return best;
+    if (best && bestDist <= Math.floor(best.length * 0.5)) return best;
     return null;
   }
 
-  async function recognizeRegions(imageEl, regionMap, onProgress) {
+  // 전체 OCR 텍스트에서 세트/종류 + 스킬 자동 파싱
+  function parseFullText(rawText) {
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    console.log('OCR 전체 텍스트:', lines);
+
+    let set = '', type = '';
+    const skills = [];
+
+    for (const line of lines) {
+      // "A의 B" 패턴 찾기
+      if (!set && !type) {
+        const typeParsed = parseTypeName(line);
+        if (typeParsed) {
+          set = typeParsed.set;
+          type = typeParsed.type;
+          continue;
+        }
+      }
+
+      // 스킬 패턴 찾기
+      const skillParsed = parseSkillLine(line);
+      if (skillParsed) {
+        skills.push(skillParsed);
+      }
+    }
+
+    // "A의 B"를 못 찾은 경우 알려진 이름으로 직접 탐색
+    if (!set && !type) {
+      const fullText = rawText;
+      for (const s of SET_NAMES) {
+        if (fullText.includes(s)) { set = s; break; }
+      }
+      for (const t of TYPE_NAMES) {
+        if (fullText.includes(t)) { type = t; break; }
+      }
+    }
+
+    return { set, type, skills };
+  }
+
+  async function recognizeImage(imageEl, onProgress) {
     if (isProcessing) {
       App.toast('이미 OCR이 진행 중입니다', 'error');
       return null;
@@ -196,44 +199,16 @@ const OcrEngine = (function () {
     try {
       await initWorker(onProgress);
 
-      const result = { set: '', type: '', skills: [] };
+      onProgress && onProgress({ status: 'processing', text: '이미지 전처리 중...', progress: 0.2 });
+      const preprocessed = preprocessImage(imageEl);
 
-      // 종류 영역 OCR
-      if (regionMap.type) {
-        onProgress && onProgress({ status: 'processing', text: '종류 영역 인식 중...', progress: 0.1 });
-        const preprocessed = preprocessRegion(imageEl, regionMap.type);
-        try {
-          const { data } = await worker.recognize(preprocessed);
-          const parsed = parseTypeName(data.text);
-          result.set = parsed.set;
-          result.type = parsed.type;
-          console.log('종류 파싱 결과:', parsed);
-        } catch (err) {
-          console.error('종류 OCR 오류:', err);
-        }
-      }
+      onProgress && onProgress({ status: 'recognizing', text: 'OCR 인식 중...', progress: 0.3 });
+      const { data } = await worker.recognize(preprocessed);
+      const rawText = data.text.trim();
+      console.log('OCR raw:', rawText);
 
-      // 스킬 영역 OCR
-      if (regionMap.skill) {
-        onProgress && onProgress({ status: 'processing', text: '스킬 영역 인식 중...', progress: 0.5 });
-        const preprocessed = preprocessRegion(imageEl, regionMap.skill);
-        try {
-          const { data } = await worker.recognize(preprocessed);
-          const rawText = data.text.trim();
-          console.log('스킬 OCR raw:', rawText);
-
-          const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-          for (const line of lines) {
-            const parsed = parseSkillLine(line);
-            if (parsed) {
-              result.skills.push(parsed);
-            }
-          }
-          console.log('스킬 파싱 결과:', result.skills);
-        } catch (err) {
-          console.error('스킬 OCR 오류:', err);
-        }
-      }
+      const result = parseFullText(rawText);
+      console.log('파싱 결과:', result);
 
       onProgress && onProgress({ status: 'done', text: '완료', progress: 1 });
       return result;
@@ -246,5 +221,5 @@ const OcrEngine = (function () {
     }
   }
 
-  return { recognizeRegions, setClass };
+  return { recognizeImage, setClass };
 })();

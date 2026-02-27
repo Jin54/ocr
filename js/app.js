@@ -3,7 +3,6 @@
 const App = (function () {
   function init() {
     ImageManager.init(onImageSelected);
-    RegionSelector.init();
     ExportManager.init();
     initClassSelect();
 
@@ -29,21 +28,13 @@ const App = (function () {
   }
 
   function onImageSelected(imgData) {
-    requestAnimationFrame(() => {
-      RegionSelector.onImageChange();
-    });
+    // 크롭된 이미지가 워크스페이스에 표시됨
   }
 
   async function runOcrAll() {
     const allImages = ImageManager.getAll();
     if (allImages.length === 0) {
       toast('이미지를 먼저 업로드해주세요', 'error');
-      return;
-    }
-
-    const regions = RegionSelector.getRegions();
-    if (!regions.type && !regions.skill) {
-      toast('종류 또는 스킬 영역을 먼저 그려주세요', 'error');
       return;
     }
 
@@ -66,7 +57,7 @@ const App = (function () {
         if (imgEl.complete) resolve();
       });
 
-      const result = await OcrEngine.recognizeRegions(imgEl, regions, onOcrProgress);
+      const result = await OcrEngine.recognizeImage(imgEl, onOcrProgress);
       if (result) {
         ResultTable.addResult(imgData.fileName, result);
       }
