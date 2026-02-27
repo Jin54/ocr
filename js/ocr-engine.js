@@ -1,4 +1,4 @@
-/* ocr-engine.js - 크롭된 이미지 전체를 OCR하여 자동 파싱 */
+/* ocr-engine.js - 색상 분리 OCR: 노란색→종류, 파란색→스킬 */
 
 const OcrEngine = (function () {
   let worker = null;
@@ -21,12 +21,6 @@ const OcrEngine = (function () {
             progress: m.progress,
             text: 'OCR 인식 중... ' + Math.round(m.progress * 100) + '%',
           });
-        } else if (m.progress !== undefined) {
-          onProgress && onProgress({
-            status: m.status,
-            progress: m.progress,
-            text: m.status + '... ' + Math.round((m.progress || 0) * 100) + '%',
-          });
         }
       },
     });
@@ -40,42 +34,35 @@ const OcrEngine = (function () {
     isInitialized = true;
   }
 
-  // 이미지 전처리: 텍스트 색상만 검정으로, 나머지 흰색
-  function preprocessImage(imageEl) {
+  // 스케일된 캔버스 생성
+  function createScaledCanvas(imageEl) {
     const canvas = document.createElement('canvas');
     const scale = Math.max(1, Math.ceil(600 / imageEl.naturalHeight));
     canvas.width = imageEl.naturalWidth * scale;
     canvas.height = imageEl.naturalHeight * scale;
-
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(imageEl, 0, 0, canvas.width, canvas.height);
+    return { canvas, ctx, imageData: ctx.getImageData(0, 0, canvas.width, canvas.height) };
+  }
 
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  // 노란색 텍스트만 추출 (종류명: "활력의 성배" 등)
+  function preprocessYellow(imageEl) {
+    const { canvas, ctx, imageData } = createScaledCanvas(imageEl);
     const data = imageData.data;
+
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
-      const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
-      let isText = false;
+      let isYellow = false;
 
-      // 밝은 텍스트 (흰색, 노란색)
-      if (brightness > 160) {
-        isText = true;
+      // 노란색/금색: R과 G가 높고 B가 낮음
+      if (r > 150 && g > 100 && b < 120 && r > b * 1.5 && g > b * 1.2) {
+        isYellow = true;
       }
 
-      // 채도 있는 텍스트 (파랑, 초록, 노랑)
-      if (brightness > 60) {
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const saturation = max > 0 ? (max - min) / max : 0;
-        if (saturation > 0.2) {
-          isText = true;
-        }
-      }
-
-      if (isText) {
+      if (isYellow) {
         data[i] = data[i + 1] = data[i + 2] = 0;
       } else {
         data[i] = data[i + 1] = data[i + 2] = 255;
@@ -85,7 +72,47 @@ const OcrEngine = (function () {
     return canvas;
   }
 
-  // 스킬명 정리: 한글과 공백만
+  // 파란/하늘색 텍스트만 추출 (스킬명 + Lv)
+  function preprocessBlue(imageEl) {
+    const { canvas, ctx, imageData } = createScaledCanvas(imageEl);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+      let isBlue = false;
+
+      // 파란/하늘/시안 계열: B 또는 G가 우세하고 채도 있음
+      if (brightness > 50 && brightness < 240) {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const saturation = max > 0 ? (max - min) / max : 0;
+        if (saturation > 0.15 && (b > r || g > r)) {
+          isBlue = true;
+        }
+      }
+
+      // 흰색/밝은 텍스트 (Lv +1 같은 레벨 텍스트)
+      if (brightness > 180) {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const saturation = max > 0 ? (max - min) / max : 0;
+        if (saturation < 0.15) {
+          isBlue = true;
+        }
+      }
+
+      if (isBlue) {
+        data[i] = data[i + 1] = data[i + 2] = 0;
+      } else {
+        data[i] = data[i + 1] = data[i + 2] = 255;
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  }
+
   function cleanSkillName(text) {
     return text.replace(/[^가-힣\s]/g, '').replace(/\s+/g, ' ').trim();
   }
@@ -96,40 +123,45 @@ const OcrEngine = (function () {
   }
 
   // "A의 B" 파싱
-  function parseTypeName(text) {
-    const match = text.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
-    if (match) {
-      const setName = matchClosest(match[1], SET_NAMES);
-      const typeName = matchClosest(match[2], TYPE_NAMES);
-      return { set: setName || match[1], type: typeName || match[2] };
+  function parseTypeName(rawText) {
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    for (const line of lines) {
+      const match = line.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
+      if (match) {
+        const setName = matchClosest(match[1], SET_NAMES);
+        const typeName = matchClosest(match[2], TYPE_NAMES);
+        return { set: setName || match[1], type: typeName || match[2] };
+      }
     }
-    return null;
+    // 직접 탐색
+    let set = '', type = '';
+    for (const s of SET_NAMES) { if (rawText.includes(s)) { set = s; break; } }
+    for (const t of TYPE_NAMES) { if (rawText.includes(t)) { type = t; break; } }
+    return { set, type };
   }
 
-  // 스킬+레벨 파싱
-  function parseSkillLine(text) {
-    const trimmed = text.trim();
-    if (!trimmed) return null;
+  // 스킬 파싱
+  function parseSkills(rawText) {
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const skills = [];
 
-    let match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
-    if (match) {
-      const name = cleanSkillName(match[1]);
-      if (name) {
-        const matched = SkillData.matchSkill(name, selectedClass);
-        return { name: matched || name, level: '+' + match[2] };
+    for (const line of lines) {
+      if (skills.length >= 4) break;
+
+      let match = line.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
+      if (!match) {
+        match = line.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
+      }
+      if (match) {
+        const name = cleanSkillName(match[1]);
+        if (name) {
+          const matched = SkillData.matchSkill(name, selectedClass);
+          skills.push({ name: matched || name, level: '+' + match[2] });
+        }
       }
     }
 
-    match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
-    if (match) {
-      const name = cleanSkillName(match[1]);
-      if (name) {
-        const matched = SkillData.matchSkill(name, selectedClass);
-        return { name: matched || name, level: '+' + match[2] };
-      }
-    }
-
-    return null;
+    return skills;
   }
 
   function matchClosest(text, list) {
@@ -148,46 +180,6 @@ const OcrEngine = (function () {
     return null;
   }
 
-  // 전체 OCR 텍스트에서 세트/종류 + 스킬 자동 파싱
-  function parseFullText(rawText) {
-    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    console.log('OCR 전체 텍스트:', lines);
-
-    let set = '', type = '';
-    const skills = [];
-
-    for (const line of lines) {
-      // "A의 B" 패턴 찾기
-      if (!set && !type) {
-        const typeParsed = parseTypeName(line);
-        if (typeParsed) {
-          set = typeParsed.set;
-          type = typeParsed.type;
-          continue;
-        }
-      }
-
-      // 스킬 패턴 찾기
-      const skillParsed = parseSkillLine(line);
-      if (skillParsed) {
-        skills.push(skillParsed);
-      }
-    }
-
-    // "A의 B"를 못 찾은 경우 알려진 이름으로 직접 탐색
-    if (!set && !type) {
-      const fullText = rawText;
-      for (const s of SET_NAMES) {
-        if (fullText.includes(s)) { set = s; break; }
-      }
-      for (const t of TYPE_NAMES) {
-        if (fullText.includes(t)) { type = t; break; }
-      }
-    }
-
-    return { set, type, skills };
-  }
-
   async function recognizeImage(imageEl, onProgress) {
     if (isProcessing) {
       App.toast('이미 OCR이 진행 중입니다', 'error');
@@ -199,16 +191,28 @@ const OcrEngine = (function () {
     try {
       await initWorker(onProgress);
 
-      onProgress && onProgress({ status: 'processing', text: '이미지 전처리 중...', progress: 0.2 });
-      const preprocessed = preprocessImage(imageEl);
+      // 1) 노란색 OCR → 종류
+      onProgress && onProgress({ status: 'processing', text: '종류 인식 중 (노란색)...', progress: 0.1 });
+      const yellowCanvas = preprocessYellow(imageEl);
+      const yellowResult = await worker.recognize(yellowCanvas);
+      const yellowText = yellowResult.data.text.trim();
+      console.log('노란색 OCR:', yellowText);
+      const typeInfo = parseTypeName(yellowText);
 
-      onProgress && onProgress({ status: 'recognizing', text: 'OCR 인식 중...', progress: 0.3 });
-      const { data } = await worker.recognize(preprocessed);
-      const rawText = data.text.trim();
-      console.log('OCR raw:', rawText);
+      // 2) 파란색 OCR → 스킬
+      onProgress && onProgress({ status: 'processing', text: '스킬 인식 중 (파란색)...', progress: 0.5 });
+      const blueCanvas = preprocessBlue(imageEl);
+      const blueResult = await worker.recognize(blueCanvas);
+      const blueText = blueResult.data.text.trim();
+      console.log('파란색 OCR:', blueText);
+      const skills = parseSkills(blueText);
 
-      const result = parseFullText(rawText);
-      console.log('파싱 결과:', result);
+      const result = {
+        set: typeInfo.set,
+        type: typeInfo.type,
+        skills: skills,
+      };
+      console.log('최종 결과:', result);
 
       onProgress && onProgress({ status: 'done', text: '완료', progress: 1 });
       return result;

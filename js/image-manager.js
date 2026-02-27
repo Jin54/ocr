@@ -1,10 +1,11 @@
 /* image-manager.js - Image upload, drag-and-drop, crop ratio control */
 
 const ImageManager = (function () {
-  let images = []; // { id, fileName, originalDataUrl, originalWidth, originalHeight, dataUrl, naturalWidth, naturalHeight }
+  let images = [];
   let selectedId = null;
   let onSelectCallback = null;
-  let cropRatio = 0.33; // 오른쪽에서 크롭할 비율 (기본 33%)
+  let cropRight = 0.33;  // 오른쪽 크롭 비율
+  let cropBottom = 0;    // 아래쪽 크롭 비율
 
   const uploadZone = () => document.getElementById('upload-zone');
   const fileInput = () => document.getElementById('file-input');
@@ -38,42 +39,55 @@ const ImageManager = (function () {
       e.target.value = '';
     });
 
-    // 크롭 비율 슬라이더
-    const slider = document.getElementById('crop-ratio');
-    const label = document.getElementById('crop-ratio-value');
-    if (slider) {
-      slider.value = Math.round(cropRatio * 100);
-      label.textContent = Math.round(cropRatio * 100) + '%';
-      slider.addEventListener('input', (e) => {
-        cropRatio = parseInt(e.target.value) / 100;
-        label.textContent = e.target.value + '%';
+    // 오른쪽 크롭 슬라이더
+    const rightSlider = document.getElementById('crop-ratio');
+    const rightLabel = document.getElementById('crop-ratio-value');
+    if (rightSlider) {
+      rightSlider.value = Math.round(cropRight * 100);
+      rightLabel.textContent = Math.round(cropRight * 100) + '%';
+      rightSlider.addEventListener('input', (e) => {
+        cropRight = parseInt(e.target.value) / 100;
+        rightLabel.textContent = e.target.value + '%';
+        recropAll();
+      });
+    }
+
+    // 아래쪽 크롭 슬라이더
+    const bottomSlider = document.getElementById('crop-bottom');
+    const bottomLabel = document.getElementById('crop-bottom-value');
+    if (bottomSlider) {
+      bottomSlider.value = Math.round(cropBottom * 100);
+      bottomLabel.textContent = Math.round(cropBottom * 100) + '%';
+      bottomSlider.addEventListener('input', (e) => {
+        cropBottom = parseInt(e.target.value) / 100;
+        bottomLabel.textContent = e.target.value + '%';
         recropAll();
       });
     }
   }
 
-  // 이미지의 오른쪽 N%를 크롭
-  function cropRight(img, ratio) {
+  // 오른쪽 + 아래쪽 크롭
+  function cropImage(img) {
     const canvas = document.createElement('canvas');
-    const cropX = Math.round(img.naturalWidth * (1 - ratio));
+    const cropX = Math.round(img.naturalWidth * (1 - cropRight));
     const cropW = img.naturalWidth - cropX;
+    const cropH = Math.round(img.naturalHeight * (1 - cropBottom));
     canvas.width = cropW;
-    canvas.height = img.naturalHeight;
+    canvas.height = cropH;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, cropX, 0, cropW, img.naturalHeight, 0, 0, cropW, img.naturalHeight);
+    ctx.drawImage(img, cropX, 0, cropW, cropH, 0, 0, cropW, cropH);
     return {
       dataUrl: canvas.toDataURL('image/jpeg', 0.95),
       naturalWidth: cropW,
-      naturalHeight: img.naturalHeight,
+      naturalHeight: cropH,
     };
   }
 
-  // 원본 이미지로부터 크롭 (Image 객체 사용)
   function cropFromOriginal(imgData) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
-        const cropped = cropRight(img, cropRatio);
+        const cropped = cropImage(img);
         imgData.dataUrl = cropped.dataUrl;
         imgData.naturalWidth = cropped.naturalWidth;
         imgData.naturalHeight = cropped.naturalHeight;
@@ -83,7 +97,6 @@ const ImageManager = (function () {
     });
   }
 
-  // 비율 변경 시 전체 이미지 재크롭
   async function recropAll() {
     for (const imgData of images) {
       await cropFromOriginal(imgData);
@@ -92,8 +105,7 @@ const ImageManager = (function () {
     if (selectedId) {
       const img = images.find(i => i.id === selectedId);
       if (img) {
-        const wsImg = workspaceImage();
-        wsImg.src = img.dataUrl;
+        workspaceImage().src = img.dataUrl;
       }
     }
   }
@@ -109,7 +121,7 @@ const ImageManager = (function () {
         const img = new Image();
         img.onload = () => {
           const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-          const cropped = cropRight(img, cropRatio);
+          const cropped = cropImage(img);
           images.push({
             id,
             fileName: file.name,
