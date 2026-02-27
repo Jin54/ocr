@@ -54,24 +54,18 @@ const OcrEngine = (function () {
 
       let isText = false;
 
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const sat = max > 0 ? (max - min) / max : 0;
+
       // 밝은 텍스트 (흰색, Lv +N 등): 밝고 채도 낮음
-      if (brightness > 180) {
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const sat = max > 0 ? (max - min) / max : 0;
-        if (sat < 0.3) {
-          isText = true;
-        }
+      if (brightness > 150 && sat < 0.4) {
+        isText = true;
       }
 
       // 채도 있는 텍스트 (노란/파란/초록/하늘 등)
-      if (brightness > 50) {
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const saturation = max > 0 ? (max - min) / max : 0;
-        if (saturation > 0.2) {
-          isText = true;
-        }
+      if (brightness > 40 && sat > 0.15) {
+        isText = true;
       }
 
       if (isText) {
@@ -100,14 +94,14 @@ const OcrEngine = (function () {
     return IGNORE_WORDS.some(w => name.includes(w));
   }
 
-  // "A의 B" 파싱
+  // "A의 B" 파싱 (SET과 TYPE 둘 다 매칭될 때만 인정)
   function parseTypeName(line) {
     const match = line.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
     if (match) {
       const setName = matchClosest(match[1], SET_NAMES);
       const typeName = matchClosest(match[2], TYPE_NAMES);
-      if (setName || typeName) {
-        return { set: setName || match[1], type: typeName || match[2] };
+      if (setName && typeName) {
+        return { set: setName, type: typeName };
       }
     }
     return null;
@@ -170,7 +164,6 @@ const OcrEngine = (function () {
         if (typeParsed) {
           set = typeParsed.set;
           type = typeParsed.type;
-          continue;
         }
       }
 
