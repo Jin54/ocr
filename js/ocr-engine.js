@@ -87,42 +87,31 @@ const OcrEngine = (function () {
     selectedClass = className || null;
   }
 
-  // 비스킬 키워드 필터
-  const IGNORE_WORDS = ['강화', '단계', '장착', '효과', '세트', '아이템', '레벨', '시간', '태초', '생명력', '공격력', '방어력', '정신력', '이상일'];
+  // 비스킬 키워드 필터 (정확히 이 단어만으로 구성된 경우)
+  const IGNORE_WORDS = ['강화', '단계', '장착', '효과', '세트', '아이템', '레벨', '시간', '태초', '생명력', '공격력', '방어력', '정신력', '이상일', '장착 효과', '세트 효과', '강화 단계'];
 
   function isIgnored(name) {
-    return IGNORE_WORDS.some(w => name.includes(w));
+    if (!name || name.length < 2) return true;
+    return IGNORE_WORDS.some(w => name === w || name === w.replace(/\s/g, ''));
   }
 
-  // 세트/종류 이름 매칭 (정확 + 포함만, levenshtein 미사용)
+  // 세트/종류 이름 매칭 (정확 + 포함, levenshtein 미사용)
   function matchExact(text, list) {
+    const cleaned = text.replace(/\s/g, '');
     for (const item of list) {
-      if (text === item) return item;
+      if (cleaned === item) return item;
     }
     for (const item of list) {
-      if (text.includes(item) || item.includes(text)) return item;
+      if (item.length >= 2 && (cleaned.includes(item) || item.includes(cleaned))) return item;
+    }
+    // 1글자 아이템("종")은 정확 매칭만
+    for (const item of list) {
+      if (item.length === 1 && cleaned === item) return item;
     }
     return null;
   }
 
-  // 스킬 매칭용 (levenshtein 포함, 관대하게)
-  function matchClosest(text, list) {
-    for (const item of list) {
-      if (text === item) return item;
-    }
-    for (const item of list) {
-      if (text.includes(item) || item.includes(text)) return item;
-    }
-    let best = null, bestDist = Infinity;
-    for (const item of list) {
-      const dist = SkillData.levenshtein(text, item);
-      if (dist < bestDist) { bestDist = dist; best = item; }
-    }
-    if (best && bestDist <= Math.floor(best.length * 0.3)) return best;
-    return null;
-  }
-
-  // "A의 B" 파싱 (정확 매칭만 사용, 스킬명 오인 방지)
+  // "A의 B" 파싱 (정확 매칭만, 스킬명 오인 방지)
   function parseTypeName(line) {
     const match = line.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
     if (match) {
@@ -133,11 +122,6 @@ const OcrEngine = (function () {
       }
     }
     return null;
-  }
-
-  // Lv 패턴이 있는지 확인
-  function hasLvPattern(text) {
-    return /(?:Lv|LV|lv|Iv)\s*\+?\s*\d+/.test(text) || /\+\d+/.test(text);
   }
 
   // 스킬+레벨 파싱
@@ -171,34 +155,40 @@ const OcrEngine = (function () {
     const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     console.log('OCR 전체 텍스트:', lines);
 
+    // 인접 라인 합치기: "스킬명" + "Lv +N" 이 별도 라인인 경우 대비
+    const mergedLines = [];
+    for (let i = 0; i < lines.length; i++) {
+      mergedLines.push(lines[i]);
+      if (i + 1 < lines.length) {
+        mergedLines.push(lines[i] + ' ' + lines[i + 1]);
+      }
+    }
+
     let set = '', type = '';
     const skills = [];
+    const usedLines = new Set();
 
-    for (const line of lines) {
-      // Lv 패턴이 있으면 스킬 우선 (스킬명에 "의"가 있어도 타입으로 오인 방지)
-      if (skills.length < 4 && hasLvPattern(line)) {
-        const skillParsed = parseSkillLine(line);
-        if (skillParsed) {
-          skills.push(skillParsed);
-          continue;
-        }
-      }
+    for (let i = 0; i < mergedLines.length; i++) {
+      const line = mergedLines[i];
 
-      // "A의 B" 패턴 (Lv가 없는 라인에서만)
-      if (!set && !type) {
+      // 모든 라인에서 "A의 B" 패턴 체크 (아직 세트/종류가 없으면)
+      if (!set || !type) {
         const typeParsed = parseTypeName(line);
         if (typeParsed) {
-          set = typeParsed.set;
-          type = typeParsed.type;
-          continue;
+          if (!set) set = typeParsed.set;
+          if (!type) type = typeParsed.type;
         }
       }
 
-      // Lv가 없지만 스킬일 수 있는 경우도 체크
+      // 스킬 패턴 (최대 4개, 중복 방지)
       if (skills.length < 4) {
         const skillParsed = parseSkillLine(line);
         if (skillParsed) {
-          skills.push(skillParsed);
+          // 동일 스킬+레벨 중복 방지
+          const isDup = skills.some(s => s.name === skillParsed.name && s.level === skillParsed.level);
+          if (!isDup) {
+            skills.push(skillParsed);
+          }
         }
       }
     }
@@ -225,7 +215,9 @@ const OcrEngine = (function () {
         for (const s of SET_NAMES) { if (rawText.includes(s)) { set = s; break; } }
       }
       if (!type) {
-        for (const t of TYPE_NAMES) { if (rawText.includes(t)) { type = t; break; } }
+        for (const t of TYPE_NAMES) {
+          if (t.length >= 2 && rawText.includes(t)) { type = t; break; }
+        }
       }
     }
 
