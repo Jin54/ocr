@@ -34,7 +34,7 @@ const OcrEngine = (function () {
     isInitialized = true;
   }
 
-  // 모든 텍스트 색상(노란+파란+초록+흰)을 검정으로, 나머지 흰색
+  // 전처리: 텍스트 색상을 검정으로, 나머지 흰색 + 하단 노이즈 제거
   function preprocessImage(imageEl) {
     const canvas = document.createElement('canvas');
     const scale = Math.max(2, Math.ceil(1200 / imageEl.naturalHeight));
@@ -48,7 +48,20 @@ const OcrEngine = (function () {
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
+    const w = canvas.width;
+    const h = canvas.height;
+    // 하단 55%는 강제 흰색 (스킬 정보는 상단 45%에만 존재)
+    const cutoffY = Math.round(h * 0.45);
+
     for (let i = 0; i < data.length; i += 4) {
+      const px = (i / 4) | 0;
+      const y = (px / w) | 0;
+
+      if (y >= cutoffY) {
+        data[i] = data[i + 1] = data[i + 2] = 255;
+        continue;
+      }
+
       const r = data[i], g = data[i + 1], b = data[i + 2];
       const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -58,7 +71,7 @@ const OcrEngine = (function () {
       const min = Math.min(r, g, b);
       const sat = max > 0 ? (max - min) / max : 0;
 
-      // 밝은 텍스트 (흰색, Lv +N 등): 밝고 채도 낮음
+      // 밝은 텍스트 (흰색, Lv +N 등)
       if (brightness > 150 && sat < 0.4) {
         isText = true;
       }
@@ -87,15 +100,7 @@ const OcrEngine = (function () {
     selectedClass = className || null;
   }
 
-  // 비스킬 키워드 필터 (정확히 이 단어만으로 구성된 경우)
-  const IGNORE_WORDS = ['강화', '단계', '장착', '효과', '세트', '아이템', '레벨', '시간', '태초', '생명력', '공격력', '방어력', '정신력', '이상일', '장착 효과', '세트 효과', '강화 단계'];
-
-  function isIgnored(name) {
-    if (!name || name.length < 2) return true;
-    return IGNORE_WORDS.some(w => name === w || name === w.replace(/\s/g, ''));
-  }
-
-  // 세트/종류 이름 매칭 (정확 + 포함, levenshtein 미사용)
+  // 세트/종류 이름 매칭 (정확 + 포함)
   function matchExact(text, list) {
     const cleaned = text.replace(/\s/g, '');
     for (const item of list) {
@@ -104,14 +109,10 @@ const OcrEngine = (function () {
     for (const item of list) {
       if (item.length >= 2 && (cleaned.includes(item) || item.includes(cleaned))) return item;
     }
-    // 1글자 아이템("종")은 정확 매칭만
-    for (const item of list) {
-      if (item.length === 1 && cleaned === item) return item;
-    }
     return null;
   }
 
-  // "A의 B" 파싱 (정확 매칭만, 스킬명 오인 방지)
+  // "A의 B" 파싱
   function parseTypeName(line) {
     const match = line.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
     if (match) {
@@ -124,7 +125,7 @@ const OcrEngine = (function () {
     return null;
   }
 
-  // 스킬+레벨 파싱
+  // 스킬+레벨 파싱 (라인 기반)
   function parseSkillLine(text) {
     const trimmed = text.trim();
     if (!trimmed) return null;
@@ -132,7 +133,7 @@ const OcrEngine = (function () {
     let match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
-      if (name && !isIgnored(name)) {
+      if (name && name.length >= 2) {
         const matched = SkillData.matchSkill(name, selectedClass);
         return { name: matched || name, level: '+' + match[2] };
       }
@@ -141,7 +142,7 @@ const OcrEngine = (function () {
     match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
-      if (name && !isIgnored(name)) {
+      if (name && name.length >= 2) {
         const matched = SkillData.matchSkill(name, selectedClass);
         return { name: matched || name, level: '+' + match[2] };
       }
@@ -150,12 +151,53 @@ const OcrEngine = (function () {
     return null;
   }
 
+  // OCR raw 텍스트에서 알려진 스킬명을 직접 검색 (fallback)
+  function findSkillsInRawText(rawText, existingSkills) {
+    const allSkills = selectedClass
+      ? SkillData.getSkillsByClass(selectedClass)
+      : SkillData.getAllSkills();
+
+    const found = [];
+    const existingNames = new Set(existingSkills.map(s => s.name));
+
+    // 긴 이름부터 검색 (부분 매칭 방지)
+    const sorted = [...allSkills].sort((a, b) => b.length - a.length);
+
+    for (const skill of sorted) {
+      if (existingNames.has(skill)) continue;
+      if (found.length + existingSkills.length >= 4) break;
+
+      if (rawText.includes(skill)) {
+        found.push({ name: skill, level: '' });
+        existingNames.add(skill);
+      }
+    }
+
+    return found;
+  }
+
+  // Lv/+N 레벨 값들을 수집
+  function collectLevels(rawText) {
+    const levels = [];
+    const re = /(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/g;
+    let m;
+    while ((m = re.exec(rawText)) !== null) {
+      levels.push('+' + m[1]);
+    }
+    // +N 패턴도 수집 (Lv 없이)
+    const re2 = /(?<![0-9,./])(?:^|\s)\+(\d+)(?:\s|$)/gm;
+    while ((m = re2.exec(rawText)) !== null) {
+      levels.push('+' + m[1]);
+    }
+    return levels;
+  }
+
   // 전체 OCR 텍스트 파싱
   function parseFullText(rawText) {
     const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     console.log('OCR 전체 텍스트:', lines);
 
-    // 인접 라인 합치기: "스킬명" + "Lv +N" 이 별도 라인인 경우 대비
+    // 인접 라인 합치기
     const mergedLines = [];
     for (let i = 0; i < lines.length; i++) {
       mergedLines.push(lines[i]);
@@ -166,12 +208,9 @@ const OcrEngine = (function () {
 
     let set = '', type = '';
     const skills = [];
-    const usedLines = new Set();
 
-    for (let i = 0; i < mergedLines.length; i++) {
-      const line = mergedLines[i];
-
-      // 모든 라인에서 "A의 B" 패턴 체크 (아직 세트/종류가 없으면)
+    for (const line of mergedLines) {
+      // 세트/종류 파싱
       if (!set || !type) {
         const typeParsed = parseTypeName(line);
         if (typeParsed) {
@@ -180,11 +219,10 @@ const OcrEngine = (function () {
         }
       }
 
-      // 스킬 패턴 (최대 4개, 중복 방지)
+      // 스킬 파싱 (최대 4개, 중복 방지)
       if (skills.length < 4) {
         const skillParsed = parseSkillLine(line);
         if (skillParsed) {
-          // 동일 스킬+레벨 중복 방지
           const isDup = skills.some(s => s.name === skillParsed.name && s.level === skillParsed.level);
           if (!isDup) {
             skills.push(skillParsed);
@@ -193,7 +231,30 @@ const OcrEngine = (function () {
       }
     }
 
-    // fallback: 알려진 이름 직접 탐색
+    // fallback: 스킬이 4개 미만이면 raw 텍스트에서 알려진 스킬명 직접 검색
+    if (skills.length < 4) {
+      const extraSkills = findSkillsInRawText(rawText, skills);
+      // 레벨 매칭: 수집된 Lv 값 중 아직 사용되지 않은 것 할당
+      const allLevels = collectLevels(rawText);
+      // 이미 파싱된 스킬의 레벨 제거
+      const usedLevels = skills.map(s => s.level);
+      const remainLevels = [...allLevels];
+      for (const ul of usedLevels) {
+        const idx = remainLevels.indexOf(ul);
+        if (idx >= 0) remainLevels.splice(idx, 1);
+      }
+
+      for (const extra of extraSkills) {
+        if (skills.length >= 4) break;
+        // 남은 레벨 중 하나 할당
+        if (remainLevels.length > 0) {
+          extra.level = remainLevels.shift();
+        }
+        skills.push(extra);
+      }
+    }
+
+    // fallback: 세트/종류
     if (!set || !type) {
       for (const line of lines) {
         if (set && type) break;
