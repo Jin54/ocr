@@ -5,6 +5,10 @@ const OcrEngine = (function () {
   let isInitialized = false;
   let isProcessing = false;
 
+  // 세트명/종류명 매칭 리스트
+  const SET_NAMES = ['활력', '마력', '광분', '순수'];
+  const TYPE_NAMES = ['성배', '양피지', '나침반', '종', '거울', '천칭'];
+
   async function initWorker(onProgress) {
     if (worker && isInitialized) return;
 
@@ -31,14 +35,13 @@ const OcrEngine = (function () {
     await worker.setParameters({
       preserve_interword_spaces: '1',
       user_defined_dpi: '300',
-      tessedit_pageseg_mode: '6', // SINGLE_BLOCK - 여러 줄 텍스트 블록
+      tessedit_pageseg_mode: '6',
     });
 
     isInitialized = true;
   }
 
   // 영역을 크롭하고 색상 기반 전처리
-  // 텍스트 색상(파랑/초록/흰색)만 남기고 아이콘+배경 제거
   function preprocessRegion(imageEl, region) {
     const nw = imageEl.naturalWidth;
     const nh = imageEl.naturalHeight;
@@ -58,7 +61,7 @@ const OcrEngine = (function () {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(imageEl, left, top, width, height, 0, 0, canvas.width, canvas.height);
 
-    // 색상 기반 필터링: 텍스트(파랑/초록/흰색)만 검정으로, 나머지 흰색으로
+    // 색상 기반 필터링: 텍스트(파랑/초록/흰색/노란색)만 검정으로, 나머지 흰색으로
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
@@ -67,27 +70,25 @@ const OcrEngine = (function () {
 
       let isText = false;
 
-      // 흰색/밝은 텍스트 (Lv +2 등): 밝기 높고 채도 낮음
+      // 흰색/밝은 텍스트: 밝기 높고 채도 낮음
       if (brightness > 160) {
         isText = true;
       }
 
-      // 파랑/초록/시안 계열 텍스트 (스킬명): 채도가 있고 어느정도 밝음
+      // 파랑/초록/시안/노란색 계열 텍스트: 채도가 있고 어느정도 밝음
       if (brightness > 60) {
         const max = Math.max(r, g, b);
         const min = Math.min(r, g, b);
         const saturation = max > 0 ? (max - min) / max : 0;
-        // 채도가 있고 파랑 또는 초록이 우세
-        if (saturation > 0.2 && (b > r || g > r)) {
+        if (saturation > 0.2) {
           isText = true;
         }
       }
 
-      // 텍스트 → 검정, 배경/아이콘 → 흰색 (Tesseract는 흰 배경+검정 텍스트가 최적)
       if (isText) {
-        data[i] = data[i + 1] = data[i + 2] = 0; // 검정
+        data[i] = data[i + 1] = data[i + 2] = 0;
       } else {
-        data[i] = data[i + 1] = data[i + 2] = 255; // 흰색
+        data[i] = data[i + 1] = data[i + 2] = 255;
       }
     }
     ctx.putImageData(imageData, 0, 0);
@@ -95,7 +96,7 @@ const OcrEngine = (function () {
     return canvas;
   }
 
-  // 스킬명 정리: 한글과 공백만 남김 (스킬명은 한글만 존재)
+  // 스킬명 정리: 한글과 공백만 남김
   function cleanSkillName(text) {
     return text
       .replace(/[^가-힣\s]/g, '')
@@ -110,12 +111,11 @@ const OcrEngine = (function () {
     selectedClass = className || null;
   }
 
-  // OCR 결과 한 줄에서 스킬명 + 레벨 파싱
+  // OCR 결과에서 스킬명 + 레벨 파싱
   function parseSkillLine(text) {
     const trimmed = text.trim();
     if (!trimmed) return null;
 
-    // "격파쇄 Lv +2" 패턴
     let match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
@@ -125,7 +125,6 @@ const OcrEngine = (function () {
       }
     }
 
-    // "격파쇄 +2" 패턴 (Lv 없이)
     match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
@@ -138,14 +137,57 @@ const OcrEngine = (function () {
     return null;
   }
 
-  async function recognizeRegions(imageEl, regions, onProgress) {
-    if (isProcessing) {
-      App.toast('이미 OCR이 진행 중입니다', 'error');
-      return null;
+  // "A의 B" 패턴에서 세트명(A)과 종류명(B) 파싱
+  function parseTypeName(rawText) {
+    const cleaned = rawText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    console.log('종류 OCR raw:', cleaned);
+
+    // "A의 B" 패턴 매칭
+    const match = cleaned.match(/([가-힣]+)\s*의\s*([가-힣]+)/);
+    if (match) {
+      let setName = matchClosest(match[1], SET_NAMES);
+      let typeName = matchClosest(match[2], TYPE_NAMES);
+      return { set: setName || match[1], type: typeName || match[2] };
     }
 
-    if (regions.length === 0) {
-      App.toast('OCR 영역을 먼저 그려주세요', 'error');
+    // 패턴 매칭 실패 시 알려진 이름으로 직접 탐색
+    let foundSet = null, foundType = null;
+    for (const s of SET_NAMES) {
+      if (cleaned.includes(s)) { foundSet = s; break; }
+    }
+    for (const t of TYPE_NAMES) {
+      if (cleaned.includes(t)) { foundType = t; break; }
+    }
+    if (foundSet || foundType) {
+      return { set: foundSet || '', type: foundType || '' };
+    }
+
+    return { set: '', type: '', raw: cleaned };
+  }
+
+  // 가장 가까운 이름 매칭
+  function matchClosest(text, list) {
+    // 정확히 일치
+    for (const item of list) {
+      if (text === item) return item;
+    }
+    // 포함
+    for (const item of list) {
+      if (text.includes(item) || item.includes(text)) return item;
+    }
+    // Levenshtein
+    let best = null, bestDist = Infinity;
+    for (const item of list) {
+      const dist = SkillData.levenshtein(text, item);
+      if (dist < bestDist) { bestDist = dist; best = item; }
+    }
+    if (bestDist <= Math.floor(best.length * 0.5)) return best;
+    return null;
+  }
+
+  async function recognizeRegions(imageEl, regionMap, onProgress) {
+    if (isProcessing) {
+      App.toast('이미 OCR이 진행 중입니다', 'error');
       return null;
     }
 
@@ -154,53 +196,47 @@ const OcrEngine = (function () {
     try {
       await initWorker(onProgress);
 
-      const results = [];
+      const result = { set: '', type: '', skills: [] };
 
-      for (let i = 0; i < regions.length; i++) {
-        const region = regions[i];
+      // 종류 영역 OCR
+      if (regionMap.type) {
+        onProgress && onProgress({ status: 'processing', text: '종류 영역 인식 중...', progress: 0.1 });
+        const preprocessed = preprocessRegion(imageEl, regionMap.type);
+        try {
+          const { data } = await worker.recognize(preprocessed);
+          const parsed = parseTypeName(data.text);
+          result.set = parsed.set;
+          result.type = parsed.type;
+          console.log('종류 파싱 결과:', parsed);
+        } catch (err) {
+          console.error('종류 OCR 오류:', err);
+        }
+      }
 
-        onProgress && onProgress({
-          status: 'processing',
-          text: `영역 "${region.label}" 인식 중 (${i + 1}/${regions.length})`,
-          progress: i / regions.length,
-        });
-
-        const preprocessed = preprocessRegion(imageEl, region);
-
+      // 스킬 영역 OCR
+      if (regionMap.skill) {
+        onProgress && onProgress({ status: 'processing', text: '스킬 영역 인식 중...', progress: 0.5 });
+        const preprocessed = preprocessRegion(imageEl, regionMap.skill);
         try {
           const { data } = await worker.recognize(preprocessed);
           const rawText = data.text.trim();
-          console.log(`OCR [${region.label}] raw:`, rawText);
+          console.log('스킬 OCR raw:', rawText);
 
-          // 줄별로 파싱하여 스킬+레벨 패턴만 추출
           const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-          const skills = [];
           for (const line of lines) {
             const parsed = parseSkillLine(line);
             if (parsed) {
-              skills.push(parsed);
+              result.skills.push(parsed);
             }
           }
-
-          console.log(`OCR [${region.label}] parsed:`, skills);
-
-          results.push({
-            regionLabel: region.label,
-            skills: skills,
-            rawText: rawText,
-          });
+          console.log('스킬 파싱 결과:', result.skills);
         } catch (err) {
-          console.error('OCR error for region:', region.label, err);
-          results.push({
-            regionLabel: region.label,
-            skills: [],
-            rawText: '[인식 실패]',
-          });
+          console.error('스킬 OCR 오류:', err);
         }
       }
 
       onProgress && onProgress({ status: 'done', text: '완료', progress: 1 });
-      return results;
+      return result;
     } catch (err) {
       console.error('OCR engine error:', err);
       App.toast('OCR 오류: ' + err.message, 'error');

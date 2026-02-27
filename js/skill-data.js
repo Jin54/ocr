@@ -164,5 +164,5 @@ const SkillData = (function () {
     return null; // 매칭 실패
   }
 
-  return { classes, getAllSkills, getSkillsByClass, getClassNames, matchSkill };
+  return { classes, getAllSkills, getSkillsByClass, getClassNames, matchSkill, levenshtein };
 })();

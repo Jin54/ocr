@@ -135,6 +135,38 @@ section {
   font-size: 1rem;
 }
 
+.btn-region-type {
+  background: #3a1a1a;
+  border-color: #ef5350;
+  color: #ef5350;
+}
+
+.btn-region-type:hover {
+  background: #4a2222;
+}
+
+.btn-region-type.active {
+  background: #ef5350;
+  border-color: #ef5350;
+  color: #fff;
+}
+
+.btn-region-skill {
+  background: #1a2a3a;
+  border-color: #42a5f5;
+  color: #42a5f5;
+}
+
+.btn-region-skill:hover {
+  background: #223344;
+}
+
+.btn-region-skill.active {
+  background: #42a5f5;
+  border-color: #42a5f5;
+  color: #fff;
+}
+
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -198,6 +230,9 @@ section {
 .guide-steps strong {
   color: #ccc;
 }
+
+.color-type { color: #ef5350; font-weight: 600; }
+.color-skill { color: #42a5f5; font-weight: 600; }
 
 
 /* === Thumbnail Strip === */
@@ -300,9 +335,12 @@ section {
   top: 0;
   left: 0;
   cursor: default;
+  pointer-events: none;
+  background: transparent;
 }
 
 #region-canvas.draw-mode {
+  pointer-events: auto;
   cursor: crosshair;
 }
 

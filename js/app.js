@@ -42,8 +42,8 @@ const App = (function () {
     }
 
     const regions = RegionSelector.getRegions();
-    if (regions.length === 0) {
-      toast('대표 이미지에서 OCR 영역을 먼저 그려주세요', 'error');
+    if (!regions.type && !regions.skill) {
+      toast('종류 또는 스킬 영역을 먼저 그려주세요', 'error');
       return;
     }
 
@@ -59,7 +59,6 @@ const App = (function () {
         progress: i / allImages.length,
       });
 
-      // 별도 img 엘리먼트에 로드
       const imgEl = new Image();
       imgEl.src = imgData.dataUrl;
       await new Promise(resolve => {
@@ -67,15 +66,9 @@ const App = (function () {
         if (imgEl.complete) resolve();
       });
 
-      const results = await OcrEngine.recognizeRegions(imgEl, regions, onOcrProgress);
-      if (results) {
-        // 스킬이 하나라도 있으면 추가
-        const hasSkills = results.some(r => r.skills.length > 0);
-        if (hasSkills) {
-          ResultTable.addResults(imgData.fileName, results);
-        } else {
-          ResultTable.addResults(imgData.fileName, [{ regionLabel: '', skills: [{ name: '[인식 실패]', level: '' }], rawText: '' }]);
-        }
+      const result = await OcrEngine.recognizeRegions(imgEl, regions, onOcrProgress);
+      if (result) {
+        ResultTable.addResult(imgData.fileName, result);
       }
     }
 

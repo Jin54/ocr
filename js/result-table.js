@@ -1,43 +1,35 @@
-/* result-table.js - 파일 | 스킬1 | 레벨1 | 스킬2 | 레벨2 ... */
+/* result-table.js - 파일 | 세트 | 종류 | 스킬1 | 레벨1 | 스킬2 | 레벨2 ... */
 
 const ResultTable = (function () {
   let maxSkills = 0;
-  let rows = []; // { fileName, skills: [{name, level}, ...] }
+  let rows = []; // { fileName, set, type, skills: [{name, level}, ...] }
 
   const section = () => document.getElementById('results-section');
   const thead = () => document.querySelector('#results-table thead');
   const tbody = () => document.querySelector('#results-table tbody');
 
-  // 스킬명 정리: 특수문자 제거
-  function cleanSkillName(name) {
-    return name
-      .replace(/[^가-힣a-zA-Z0-9\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
+  function addResult(fileName, ocrResult) {
+    const skills = ocrResult.skills.map(s => ({
+      name: s.name.replace(/[^가-힣a-zA-Z0-9\s]/g, '').replace(/\s+/g, ' ').trim(),
+      level: s.level,
+    }));
 
-  function addResults(fileName, regionResults) {
-    // 모든 영역의 스킬을 하나로 합침
-    const allSkills = [];
-    for (const r of regionResults) {
-      for (const s of r.skills) {
-        allSkills.push({
-          name: cleanSkillName(s.name),
-          level: s.level,
-        });
-      }
+    if (skills.length > maxSkills) {
+      maxSkills = skills.length;
     }
 
-    if (allSkills.length > maxSkills) {
-      maxSkills = allSkills.length;
-    }
-    rows.push({ fileName, skills: allSkills });
+    rows.push({
+      fileName,
+      set: ocrResult.set || '',
+      type: ocrResult.type || '',
+      skills,
+    });
     render();
     section().classList.remove('hidden');
   }
 
   function getColumns() {
-    const cols = ['파일'];
+    const cols = ['파일', '세트', '종류'];
     for (let i = 0; i < maxSkills; i++) {
       cols.push('스킬' + (i + 1));
       cols.push('레벨' + (i + 1));
@@ -53,6 +45,8 @@ const ResultTable = (function () {
 
     const bodyHtml = rows.map((row, ri) => {
       let cells = `<td contenteditable="true" data-row="${ri}" data-col="fileName">${escapeHtml(row.fileName)}</td>`;
+      cells += `<td contenteditable="true" data-row="${ri}" data-col="set">${escapeHtml(row.set)}</td>`;
+      cells += `<td contenteditable="true" data-row="${ri}" data-col="type">${escapeHtml(row.type)}</td>`;
       for (let i = 0; i < maxSkills; i++) {
         const skill = row.skills[i];
         cells += `<td contenteditable="true" data-row="${ri}" data-col="name_${i}">${escapeHtml(skill ? skill.name : '')}</td>`;
@@ -84,6 +78,10 @@ const ResultTable = (function () {
 
     if (col === 'fileName') {
       rows[ri].fileName = value;
+    } else if (col === 'set') {
+      rows[ri].set = value;
+    } else if (col === 'type') {
+      rows[ri].type = value;
     } else if (col.startsWith('name_')) {
       const idx = parseInt(col.split('_')[1]);
       if (!rows[ri].skills[idx]) rows[ri].skills[idx] = { name: '', level: '' };
@@ -104,7 +102,7 @@ const ResultTable = (function () {
   function getData() {
     const cols = getColumns();
     const exportRows = rows.map(row => {
-      const obj = { '파일': row.fileName };
+      const obj = { '파일': row.fileName, '세트': row.set, '종류': row.type };
       for (let i = 0; i < maxSkills; i++) {
         const skill = row.skills[i];
         obj['스킬' + (i + 1)] = skill ? skill.name : '';
@@ -121,5 +119,5 @@ const ResultTable = (function () {
     return div.innerHTML;
   }
 
-  return { addResults, clear, getData, render };
+  return { addResult, clear, getData, render };
 })();
