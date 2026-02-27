@@ -40,9 +40,25 @@ header h1 {
 
 /* === Main === */
 main {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 16px;
+}
+
+#main-layout {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 16px;
+  align-items: start;
+}
+
+#main-content {
+  min-width: 0;
+}
+
+#guide-sidebar {
+  position: sticky;
+  top: 16px;
 }
 
 section {
@@ -575,6 +591,15 @@ footer {
 
 /* === Responsive === */
 @media (max-width: 768px) {
+  #main-layout {
+    grid-template-columns: 1fr;
+  }
+
+  #guide-sidebar {
+    position: static;
+    order: -1;
+  }
+
   #workspace-container {
     grid-template-columns: 1fr;
   }
