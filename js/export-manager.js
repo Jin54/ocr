@@ -47,7 +47,7 @@ const ExportManager = (function () {
     }
   }
 
-  function exportJSON() {
+  async function exportJSON() {
     const { columns, rows } = ResultTable.getData();
     if (rows.length === 0) {
       App.toast('내보낼 데이터가 없습니다', 'error');
@@ -55,9 +55,15 @@ const ExportManager = (function () {
     }
 
     const json = JSON.stringify(rows, null, 2);
-    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
-    download(blob, 'ocr_results.json');
-    App.toast('JSON 파일 다운로드 완료', 'success');
+    try {
+      await navigator.clipboard.writeText(json);
+      App.toast('JSON이 클립보드에 복사되었습니다', 'success');
+    } catch (err) {
+      // fallback: 다운로드
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+      download(blob, 'ocr_results.json');
+      App.toast('클립보드 실패, JSON 파일 다운로드', 'success');
+    }
   }
 
   function download(blob, filename) {

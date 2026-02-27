@@ -48,20 +48,8 @@ const OcrEngine = (function () {
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    const w = canvas.width;
-    const h = canvas.height;
-    // 하단 55%는 강제 흰색 (스킬 정보는 상단 45%에만 존재)
-    const cutoffY = Math.round(h * 0.45);
 
     for (let i = 0; i < data.length; i += 4) {
-      const px = (i / 4) | 0;
-      const y = (px / w) | 0;
-
-      if (y >= cutoffY) {
-        data[i] = data[i + 1] = data[i + 2] = 255;
-        continue;
-      }
-
       const r = data[i], g = data[i + 1], b = data[i + 2];
       const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -93,6 +81,16 @@ const OcrEngine = (function () {
 
   function cleanSkillName(text) {
     return text.replace(/[^가-힣\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  const IGNORE_WORDS = ['강화 단계', '강화단계', '장착 효과', '장착효과', '세트 효과', '세트효과', '성배', '양피지', '나침반', '거울', '천칭'];
+
+  function isIgnored(text) {
+    const cleaned = text.replace(/\s+/g, ' ').trim();
+    for (const word of IGNORE_WORDS) {
+      if (cleaned.includes(word)) return true;
+    }
+    return false;
   }
 
   let selectedClass = null;
@@ -129,11 +127,12 @@ const OcrEngine = (function () {
   function parseSkillLine(text) {
     const trimmed = text.trim();
     if (!trimmed) return null;
+    if (isIgnored(trimmed)) return null;
 
     let match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s*(?:Lv|LV|lv|Iv)\s*\+?\s*(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
-      if (name && name.length >= 2) {
+      if (name && name.length >= 2 && !isIgnored(name)) {
         const matched = SkillData.matchSkill(name, selectedClass);
         return { name: matched || name, level: '+' + match[2] };
       }
@@ -142,7 +141,7 @@ const OcrEngine = (function () {
     match = trimmed.match(/([가-힣a-zA-Z][가-힣a-zA-Z0-9\s]*?)\s+\+(\d+)/);
     if (match) {
       const name = cleanSkillName(match[1]);
-      if (name && name.length >= 2) {
+      if (name && name.length >= 2 && !isIgnored(name)) {
         const matched = SkillData.matchSkill(name, selectedClass);
         return { name: matched || name, level: '+' + match[2] };
       }
