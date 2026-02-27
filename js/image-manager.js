@@ -48,7 +48,7 @@ const ImageManager = (function () {
       rightSlider.addEventListener('input', (e) => {
         cropRight = parseInt(e.target.value) / 100;
         rightLabel.textContent = e.target.value + '%';
-        recropAll();
+        updateSelectedPreview();
       });
     }
 
@@ -61,12 +61,12 @@ const ImageManager = (function () {
       bottomSlider.addEventListener('input', (e) => {
         cropBottom = parseInt(e.target.value) / 100;
         bottomLabel.textContent = e.target.value + '%';
-        recropAll();
+        updateSelectedPreview();
       });
     }
   }
 
-  // 오른쪽 + 아래쪽 크롭
+  // 오른쪽 + 아래쪽 크롭 (canvas 반환)
   function cropImage(img) {
     const canvas = document.createElement('canvas');
     const cropX = Math.round(img.naturalWidth * (1 - cropRight));
@@ -83,31 +83,32 @@ const ImageManager = (function () {
     };
   }
 
-  function cropFromOriginal(imgData) {
+  // 선택된 이미지만 크롭 미리보기 갱신
+  function updateSelectedPreview() {
+    if (!selectedId) return;
+    const imgData = images.find(i => i.id === selectedId);
+    if (!imgData) return;
+
+    const img = new Image();
+    img.onload = () => {
+      const cropped = cropImage(img);
+      workspaceImage().src = cropped.dataUrl;
+    };
+    img.src = imgData.originalDataUrl;
+  }
+
+  // OCR 시점에 크롭된 이미지 생성
+  function getCroppedImage(imgData) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         const cropped = cropImage(img);
-        imgData.dataUrl = cropped.dataUrl;
-        imgData.naturalWidth = cropped.naturalWidth;
-        imgData.naturalHeight = cropped.naturalHeight;
-        resolve();
+        const croppedImg = new Image();
+        croppedImg.onload = () => resolve(croppedImg);
+        croppedImg.src = cropped.dataUrl;
       };
       img.src = imgData.originalDataUrl;
     });
-  }
-
-  async function recropAll() {
-    for (const imgData of images) {
-      await cropFromOriginal(imgData);
-    }
-    renderThumbnails();
-    if (selectedId) {
-      const img = images.find(i => i.id === selectedId);
-      if (img) {
-        workspaceImage().src = img.dataUrl;
-      }
-    }
   }
 
   function handleFiles(fileList) {
@@ -121,16 +122,12 @@ const ImageManager = (function () {
         const img = new Image();
         img.onload = () => {
           const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-          const cropped = cropImage(img);
           images.push({
             id,
             fileName: file.name,
             originalDataUrl: e.target.result,
             originalWidth: img.naturalWidth,
             originalHeight: img.naturalHeight,
-            dataUrl: cropped.dataUrl,
-            naturalWidth: cropped.naturalWidth,
-            naturalHeight: cropped.naturalHeight,
           });
           loaded++;
           if (loaded === files.length) {
@@ -159,7 +156,7 @@ const ImageManager = (function () {
       const div = document.createElement('div');
       div.className = 'thumbnail' + (img.id === selectedId ? ' active' : '');
       div.innerHTML = `
-        <img src="${img.dataUrl}" alt="${img.fileName}">
+        <img src="${img.originalDataUrl}" alt="${img.fileName}">
         <span class="thumb-remove" data-id="${img.id}">&times;</span>
       `;
       div.addEventListener('click', (e) => {
@@ -180,15 +177,21 @@ const ImageManager = (function () {
     if (!img) return;
 
     selectedId = id;
-    const wsImg = workspaceImage();
-    wsImg.src = img.dataUrl;
     workspaceSection().classList.remove('hidden');
     document.getElementById('ocr-section').classList.remove('hidden');
     renderThumbnails();
 
-    if (onSelectCallback) {
-      wsImg.onload = () => onSelectCallback(img);
-    }
+    // 선택 시 크롭 미리보기 표시
+    const tempImg = new Image();
+    tempImg.onload = () => {
+      const cropped = cropImage(tempImg);
+      const wsImg = workspaceImage();
+      wsImg.src = cropped.dataUrl;
+      if (onSelectCallback) {
+        wsImg.onload = () => onSelectCallback(img);
+      }
+    };
+    tempImg.src = img.originalDataUrl;
   }
 
   function removeImage(id) {
@@ -213,5 +216,5 @@ const ImageManager = (function () {
     return images;
   }
 
-  return { init, getSelected, getAll, selectImage };
+  return { init, getSelected, getAll, selectImage, getCroppedImage };
 })();

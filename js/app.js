@@ -50,12 +50,8 @@ const App = (function () {
         progress: i / allImages.length,
       });
 
-      const imgEl = new Image();
-      imgEl.src = imgData.dataUrl;
-      await new Promise(resolve => {
-        imgEl.onload = resolve;
-        if (imgEl.complete) resolve();
-      });
+      // OCR 시점에 크롭 적용
+      const imgEl = await ImageManager.getCroppedImage(imgData);
 
       const result = await OcrEngine.recognizeImage(imgEl, onOcrProgress);
       if (result) {

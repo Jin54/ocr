@@ -37,7 +37,7 @@ const OcrEngine = (function () {
   // 모든 텍스트 색상(노란+파란+초록+흰)을 검정으로, 나머지 흰색
   function preprocessImage(imageEl) {
     const canvas = document.createElement('canvas');
-    const scale = Math.max(1, Math.ceil(600 / imageEl.naturalHeight));
+    const scale = Math.max(2, Math.ceil(1200 / imageEl.naturalHeight));
     canvas.width = imageEl.naturalWidth * scale;
     canvas.height = imageEl.naturalHeight * scale;
 
@@ -54,9 +54,14 @@ const OcrEngine = (function () {
 
       let isText = false;
 
-      // 밝은 텍스트 (흰색, Lv +N 등)
-      if (brightness > 160) {
-        isText = true;
+      // 밝은 텍스트 (흰색, Lv +N 등): 밝고 채도 낮음
+      if (brightness > 180) {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const sat = max > 0 ? (max - min) / max : 0;
+        if (sat < 0.3) {
+          isText = true;
+        }
       }
 
       // 채도 있는 텍스트 (노란/파란/초록/하늘 등)
@@ -64,7 +69,7 @@ const OcrEngine = (function () {
         const max = Math.max(r, g, b);
         const min = Math.min(r, g, b);
         const saturation = max > 0 ? (max - min) / max : 0;
-        if (saturation > 0.15) {
+        if (saturation > 0.2) {
           isText = true;
         }
       }
