@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>OCR 자동 테스트</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #eee; padding: 20px; }
+    #status { font-size: 18px; margin-bottom: 10px; }
+    #progress { width: 100%; height: 24px; background: #333; border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+    #progress-fill { height: 100%; background: #4caf50; transition: width 0.2s; }
+    #log { white-space: pre-wrap; font-size: 12px; max-height: 400px; overflow-y: auto; background: #111; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+    #result { white-space: pre-wrap; font-size: 11px; background: #0a0a0a; padding: 10px; border-radius: 4px; max-height: 600px; overflow-y: auto; }
+    button { padding: 10px 24px; font-size: 16px; cursor: pointer; margin-right: 8px; margin-bottom: 10px; }
+    .stat { font-size: 14px; margin: 8px 0; }
+    .stat b { color: #4caf50; }
+    .stat .warn { color: #ff9800; }
+    .stat .err { color: #f44336; }
+  </style>
+</head>
+<body>
+  <h1>OCR 자동 테스트 (61개 이미지)</h1>
+  <p style="color:#999">http-server로 열어주세요: <code>python -m http.server 8080</code> 후 <code>http://localhost:8080/test.html</code></p>
+  <div>
+    <button id="btn-run">테스트 실행</button>
+    <button id="btn-copy">결과 JSON 복사</button>
+    <button id="btn-copy-logs">상세 로그 복사</button>
+  </div>
+  <div id="status">대기 중</div>
+  <div id="progress"><div id="progress-fill" style="width:0%"></div></div>
+  <div id="stats"></div>
+  <div id="log"></div>
+  <h3>결과 JSON</h3>
+  <div id="result"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="js/skill-data.js"></script>
+  <script src="js/ocr-engine.js"></script>
+  <script>
+    const ALL_FILES = [];
+    for (let i = 1; i <= 61; i++) ALL_FILES.push(`sample (${i}).jpg`);
+    const urlCount = new URLSearchParams(location.search).get('count');
+    const IMAGE_FILES = urlCount ? ALL_FILES.slice(0, parseInt(urlCount)) : ALL_FILES;
+
+    const CROP_RIGHT = 0.33;
+    const CROP_BOTTOM = 0;
+
+    const statusEl = document.getElementById('status');
+    const progressFill = document.getElementById('progress-fill');
+    const logEl = document.getElementById('log');
+    const resultEl = document.getElementById('result');
+    const statsEl = document.getElementById('stats');
+
+    let allResults = [];
+    let allLogs = [];
+
+    function log(msg) {
+      logEl.textContent += msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function cropImage(img) {
+      return new Promise(resolve => {
+        const cw = Math.round(img.naturalWidth * (1 - CROP_RIGHT));
+        const ch = Math.round(img.naturalHeight * (1 - CROP_BOTTOM));
+        const canvas = document.createElement('canvas');
+        canvas.width = cw;
+        canvas.height = ch;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, cw, ch, 0, 0, cw, ch);
+        const out = new Image();
+        out.onload = () => resolve(out);
+        out.src = canvas.toDataURL('image/jpeg', 0.95);
+      });
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Failed to load: ' + src));
+        img.src = src;
+      });
+    }
+
+    window.App = { toast: (msg) => log('[toast] ' + msg) };
+    window.ImageManager = {};
+
+    document.getElementById('btn-run').addEventListener('click', runTest);
+    document.getElementById('btn-copy').addEventListener('click', () => {
+      navigator.clipboard.writeText(JSON.stringify(allResults, null, 2))
+        .then(() => statusEl.textContent = '결과 JSON 복사 완료')
+        .catch(() => statusEl.textContent = '복사 실패');
+    });
+    document.getElementById('btn-copy-logs').addEventListener('click', () => {
+      navigator.clipboard.writeText(JSON.stringify(allLogs, null, 2))
+        .then(() => statusEl.textContent = '상세 로그 복사 완료 (' + allLogs.length + '건)')
+        .catch(() => statusEl.textContent = '복사 실패');
+    });
+
+    async function runTest() {
+      allResults = [];
+      allLogs = [];
+      logEl.textContent = '';
+      resultEl.textContent = '';
+      statsEl.innerHTML = '';
+
+      OcrEngine.setClass('호법성');
+      log('직업: 호법성');
+      log('크롭: 오른쪽 ' + (CROP_RIGHT * 100) + '%, 아래 ' + (CROP_BOTTOM * 100) + '%');
+      log('이미지 수: ' + IMAGE_FILES.length);
+      log('시작...\n');
+
+      const startTime = Date.now();
+
+      for (let i = 0; i < IMAGE_FILES.length; i++) {
+        const fileName = IMAGE_FILES[i];
+        statusEl.textContent = `처리 중: ${fileName} (${i + 1}/${IMAGE_FILES.length})`;
+        progressFill.style.width = Math.round((i / IMAGE_FILES.length) * 100) + '%';
+
+        try {
+          const img = await loadImage('Images/' + encodeURIComponent(fileName));
+          const cropped = await cropImage(img);
+          const result = await OcrEngine.recognizeImage(cropped, () => {});
+
+          if (result) {
+            const entry = {
+              file: fileName,
+              set: result.set,
+              type: result.type,
+              skills: result.skills,
+            };
+            allResults.push(entry);
+
+            allLogs.push({
+              file: fileName,
+              rawText: result._rawText || '',
+              imageSize: result._imageSize || '',
+              scale: result._scale || '',
+              parsed: { set: result.set, type: result.type, skills: result.skills },
+            });
+
+            const skillStr = result.skills.map(s => s.name + ' ' + s.level).join(', ');
+            const missing = [];
+            if (!result.set) missing.push('세트');
+            if (!result.type) missing.push('종류');
+            if (result.skills.length < 4) missing.push('스킬(' + result.skills.length + '/4)');
+
+            const prefix = missing.length > 0 ? '[MISS] ' : '[OK]   ';
+            log(prefix + fileName + ' → ' + (result.set || '?') + '/' + (result.type || '?') + ' | ' + skillStr + (missing.length ? '  ← 누락: ' + missing.join(', ') : ''));
+          } else {
+            allResults.push({ file: fileName, set: '', type: '', skills: [] });
+            log('[FAIL] ' + fileName + ' → OCR 실패');
+          }
+        } catch (err) {
+          log('[ERR]  ' + fileName + ' → ' + err.message);
+          allResults.push({ file: fileName, set: '', type: '', skills: [], error: err.message });
+        }
+      }
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      progressFill.style.width = '100%';
+
+      let okCount = 0, missSet = 0, missType = 0, missSkills = 0;
+      let skillCounts = [0, 0, 0, 0, 0];
+      for (const r of allResults) {
+        if (!r.set) missSet++;
+        if (!r.type) missType++;
+        const sc = r.skills ? r.skills.length : 0;
+        skillCounts[sc]++;
+        if (r.set && r.type && sc === 4) okCount++;
+        if (sc < 4) missSkills++;
+      }
+
+      statusEl.textContent = `완료! ${elapsed}초 소요`;
+      statsEl.innerHTML = `
+        <div class="stat"><b>완벽 (세트+종류+스킬4): ${okCount}/${allResults.length}</b></div>
+        <div class="stat ${missSet ? 'warn' : ''}">세트 누락: ${missSet}</div>
+        <div class="stat ${missType ? 'warn' : ''}">종류 누락: ${missType}</div>
+        <div class="stat ${missSkills ? 'warn' : ''}">스킬 4개 미만: ${missSkills}</div>
+        <div class="stat">스킬 개수 분포: 0개=${skillCounts[0]}, 1개=${skillCounts[1]}, 2개=${skillCounts[2]}, 3개=${skillCounts[3]}, 4개=${skillCounts[4]}</div>
+      `;
+
+      log('\n=== 통계 ===');
+      log('완벽: ' + okCount + '/' + allResults.length);
+      log('세트 누락: ' + missSet);
+      log('종류 누락: ' + missType);
+      log('스킬 4개 미만: ' + missSkills);
+      log('스킬 분포: 0개=' + skillCounts[0] + ' 1개=' + skillCounts[1] + ' 2개=' + skillCounts[2] + ' 3개=' + skillCounts[3] + ' 4개=' + skillCounts[4]);
+
+      resultEl.textContent = JSON.stringify(allResults, null, 2);
+    }
+  </script>
+</body>
+</html>
